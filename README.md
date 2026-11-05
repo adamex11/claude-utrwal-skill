@@ -35,7 +35,7 @@ Równie ważne: gdy nie ma czego utrwalać, skill mówi **"nic"**, zamiast zaśm
 ## Wymagania
 
 - Claude Code (CLI, aplikacja desktop albo rozszerzenie IDE).
-- Python 3.8+ (`python3 --version`). Skrypt używa tylko biblioteki standardowej.
+- Python 3.9+ (`python3 --version`). Skrypt używa tylko biblioteki standardowej.
 - Git (do pobrania repozytorium).
 
 ## Instalacja w Claude Code
@@ -60,7 +60,10 @@ python3 install.py
 ```
 
 Instalator kopiuje skill do `~/.claude/skills/utrwal-skill/` (albo do `$CLAUDE_CONFIG_DIR/skills/`,
-jeśli używasz niestandardowego katalogu konfiguracji; wtedy sam przepisuje ścieżki w SKILL.md).
+jeśli używasz niestandardowego katalogu konfiguracji; wtedy przepisuje wszystkie ścieżki `~/.claude/`
+w plikach skilla, także miejsca zapisu globalnych skilli i globalnego CLAUDE.md). Aktualizacja jest
+bezpieczna: nowa wersja powstaje obok i zastępuje starą dopiero po udanym kopiowaniu. Jeśli
+`~/.claude/skills/utrwal-skill` jest dowiązaniem (np. do klonu repozytorium), instalator go nie nadpisze.
 `python3 install.py --sprawdz` tylko sprawdza wymagania, niczego nie kopiuje.
 
 Na Windowsie użyj `python` zamiast `python3`.
@@ -161,21 +164,27 @@ python3 install.py --uninstall
 | `--max-znakow N` | limit wpisu (domyślnie 300, wiadomości użytkownika 10x więcej) |
 | `--wyjscie PLIK` | zapis do pliku |
 
-Oś czasu zostawia: Twoje wiadomości i odpowiedzi na pytania, skrócony tekst Claude, komendy, ścieżki
-zapisanych plików i błędy razem z komendą, która je wywołała. Pomija: myślenie modelu, treść
-zapisywanych plików, wstrzyknięte treści skilli, powiadomienia i rekordy techniczne.
+Oś czasu zostawia: Twoje wiadomości (z argumentami komend, np. `/raport ABC`) i odpowiedzi na pytania,
+skrócony tekst Claude, komendy, ścieżki zapisanych plików, błędy razem z komendą, która je wywołała,
+oraz zlecenia i raporty końcowe subagentów i wyniki zadań w tle. Pomija: myślenie modelu, treść
+zapisywanych plików, wstrzyknięte treści skilli i rekordy techniczne. Uszkodzone linie zapisu pomija,
+zamiast przerywać pracę. Przy odtwarzaniu plików pomija Edity, które skończyły się błędem.
 
 ## Prywatność
 
 - Skrypt działa **lokalnie** i tylko czyta pliki w `~/.claude/projects/`. Nic nie wysyła.
-- Oś czasu trafia do kontekstu Claude, tak samo jak treść zwykłej rozmowy. Jeśli w sesji były sekrety
-  (klucze, hasła), mogą pojawić się w skrócie komend. Przejrzyj propozycję, zanim ją zaakceptujesz.
+- Oś czasu trafia do kontekstu Claude, tak samo jak treść zwykłej rozmowy. Fragmenty wyglądające na
+  sekrety (`Authorization: Bearer ...`, tokeny GitHub, klucze `sk-...`, klucze AWS i Slack, hasła
+  w cudzysłowie po `password=`/`token=`/`api_key=`) skrypt zamienia na `[SEKRET]` i podaje ich liczbę.
+  Maskowanie opiera się na wzorcach, więc nie złapie wszystkiego: przejrzyj propozycję przed akceptacją.
+- Lista kontrolna nowego skilla ma osobną sekcję o sekretach (grep po typowych wzorcach, sekrety ze
+  zmiennych środowiskowych, nic oznaczonego `[SEKRET]` w skillu).
 - Nowy skill zapisuje się dopiero po Twojej akceptacji. Gdy powstaje w repozytorium projektu, sprawdź
   go przed commitem.
 
 ## Ograniczenia
 
-- Praca subagentów jest w osobnych plikach; skrót pokazuje tylko zlecenie i raport.
+- Przebieg pracy subagentów jest w osobnych plikach; skrót pokazuje ich zlecenie i raport końcowy.
 - Pliki tworzone wyłącznie przez Bash (`cp`, heredoc) nie trafiają do `--pliki`, a zmian zrobionych przez
   Bash nie da się odtworzyć z zapisu sesji (dlatego plik z dysku ma pierwszeństwo).
 - Format zapisu sesji po kompakcji nie został zweryfikowany na prawdziwej sesji.
@@ -188,8 +197,11 @@ zapisywanych plików, wstrzyknięte treści skilli, powiadomienia i rekordy tech
 python3 -m unittest discover -s tests -v
 ```
 
-18 testów na sztucznych zapisach sesji (bez danych z prawdziwych rozmów): filtrowanie osi czasu,
-obcinanie, odzyskiwanie plików, lista sesji po przeniesieniu projektu, instalator i deinstalator.
+27 testów na sztucznych zapisach sesji (bez danych z prawdziwych rozmów): filtrowanie osi czasu,
+argumenty komend, raporty subagentów, uszkodzone linie i ucięte znaki, streszczenie po kompakcji,
+obcinanie, maskowanie sekretów, odzyskiwanie plików (także z nieudanymi Editami), lista sesji po
+przeniesieniu projektu i z polskimi znakami w ścieżce, instalator (bezpieczna aktualizacja, dowiązania,
+przepisywanie ścieżek) i deinstalator.
 CI uruchamia je na Windows i macOS (Python 3.9 i 3.12) oraz na Linuksie (Python 3.12).
 
 Sam skill był testowany subagentami bez kontekstu rozmowy na prawdziwych sesjach (zadanie jednorazowe,

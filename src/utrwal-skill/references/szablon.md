@@ -13,7 +13,7 @@ argument-hint: PARAMETR             # jeśli skill przyjmuje parametr
 
 Parametr: **$ARGUMENTS**. Jeśli brak, zapytaj o niego i nic więcej nie rób.
 
-Skrypty: `<ścieżka>/scripts/` (dalej `$S`). Uruchamiaj przez interpreter: `python3 $S/skrypt.py`.
+Skrypty: `<pełna ścieżka skilla>/scripts/`. Uruchamiaj przez interpreter, z pełną ścieżką w każdej komendzie: `python3 <pełna ścieżka skilla>/scripts/skrypt.py` (zmienne powłoki nie przetrwają między wywołaniami, więc nie definiuj skrótów w rodzaju `$S`).
 
 ## Zasady (obowiązują w każdym kroku)
 

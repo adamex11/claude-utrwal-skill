@@ -61,11 +61,12 @@ Frontmatter: `name`, `description` (tylko warunki użycia, bez streszczania krok
 
 - Czyta strumieniowo (pliki sesji do kilku MB; sesja 3,3 MB -> ok. 37 KB skrótu).
 - Zostawia: wiadomości użytkownika (bez wstrzykniętych treści i powiadomień), odpowiedzi na pytania, skrócony tekst asystenta, wywołania narzędzi (Bash: komenda; Write/Edit/Read: ścieżka), błędy z komendą, która je wywołała, wywołania skilli.
-- Pomija: myślenie modelu, rekordy techniczne, rekordy subagentów (sidechain).
+- Pomija: myślenie modelu, rekordy techniczne, rekordy subagentów (sidechain), uszkodzone linie, Edity zakończone błędem (przy `--pliki`).
+- Maskuje fragmenty wyglądające na sekrety (`[SEKRET]`) w osi czasu i w `--pliki`.
 
 ## Znane ograniczenia
 
-- Praca subagentów jest w osobnych plikach (`ID/subagents/`); widać tylko zlecenie i raport.
+- Przebieg pracy subagentów jest w osobnych plikach (`ID/subagents/`); widać zlecenie i raport końcowy (rekord `isMeta` z `origin.kind = "peer"`) oraz wyniki zadań w tle (`<task-notification>`).
 - Pliki tworzone wyłącznie przez Bash (`cp`, heredoc) nie trafiają do `--pliki`; zmian przez Bash nie da się odtworzyć z sesji.
 - Format zapisu po kompakcji nie został zweryfikowany na prawdziwej sesji.
 - Scratchpad (`/private/tmp/...`) znika po restarcie, więc kod trzeba przenieść do `scripts/` nowego skilla.
@@ -86,3 +87,19 @@ Automatyka i hooki, kilka skilli naraz, zmiany w CLAUDE.md, pamięci i istnieją
 Zmiany wprowadzone po testach: kryterium pułapki, format i zasady wyniku "nic", reguła przypadku granicznego, sprawdzanie CLAUDE.md przed propozycją, `--pliki` (kod ze scratchpadu), szkielet z kopii działającego pliku, kontrola składni przy niemożliwym uruchomieniu, prawdziwe pliki w teście suchym, `--lista` po przeniesieniu projektu.
 
 Nieprzetestowane: użycie na żywo z prawdziwymi odpowiedziami użytkownika.
+
+## Recenzja zewnętrzna (2026-11-05)
+
+Recenzja modelem Fable (ocena 7/10, bez błędów krytycznych). Poprawione:
+
+| # | Problem | Poprawka |
+|---|---|---|
+| 1 | Argumenty komend slash ginęły (leniwe `.*?` przed opcjonalną grupą) | osobne wyszukanie nazwy i argumentów |
+| 2 | Raporty subagentów odfiltrowane, choć dokumentacja mówiła, że są widoczne | raport z rekordu `origin.kind = "peer"`, status i wynik z `<task-notification>` |
+| 3 | Przy `CLAUDE_CONFIG_DIR` przepisywana tylko jedna ścieżka | instalator przepisuje każde `~/.claude/` we wszystkich plikach .md |
+| 4 | Brak ochrony przed sekretami w nowym skillu | maskowanie `[SEKRET]` w skrypcie + sekcja "Sekrety" na liście kontrolnej |
+| 5 | Szablon wprowadzał `$S`, sprzecznie z SKILL.md | pełne ścieżki w każdej komendzie |
+| 6 | Aktualizacja nieatomowa; `rmtree` na dowiązaniu kończył się tracebackiem | kopia obok i podmiana po sukcesie; dowiązanie nie jest nadpisywane |
+| 7 | Nieudane Edity nakładane przy odtwarzaniu | pomijane wywołania z `is_error` |
+
+Drobne: `errors="replace"` przy czytaniu, UTF-8 także na stderr, wskazówki dla Windows w SKILL.md, `description` pisany dla menu (przy `disable-model-invocation: true` model go nie dostaje), wymagany Python 3.9+ zgodnie z CI, 9 nowych testów (27 razem; 8 z nich nie przechodzi na kodzie sprzed poprawek).

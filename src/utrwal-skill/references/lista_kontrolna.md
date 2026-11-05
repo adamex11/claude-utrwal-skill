@@ -21,6 +21,11 @@ Sprawdź każdy punkt. Gdy któryś nie jest spełniony, popraw skill przed test
 - [ ] Ślepe uliczki z rozmowy nie są krokami.
 - [ ] SKILL.md ma mniej niż 500 linii; długie materiały są w `references/`.
 
+## Sekrety
+- [ ] Żadnych tokenów, kluczy API, haseł ani nagłówków `Authorization: Bearer ...` w SKILL.md, `scripts/` i `references/`. Sprawdź grepem, np. `grep -rniE "bearer|api[_-]?key|token|secret|password|sk-|ghp_" <folder skilla>`, i przejrzyj każde trafienie.
+- [ ] Skrypty biorą sekrety ze zmiennych środowiskowych albo pliku spoza skilla (np. `.env` w `.gitignore`), a SKILL.md mówi, jak je ustawić.
+- [ ] Nie przenoś do skilla fragmentów, które `wyciagnij_rozmowe.py` oznaczył jako `[SEKRET]`.
+
 ## Skrypty
 - [ ] Każdy skrypt uruchomiony co najmniej raz po uogólnieniu (np. `--help` albo przebieg na przykładzie).
 - [ ] Zależności spoza biblioteki standardowej są w `scripts/requirements.txt`.

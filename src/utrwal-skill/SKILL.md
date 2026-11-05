@@ -1,6 +1,6 @@
 ---
 name: utrwal-skill
-description: Używaj, gdy użytkownik wpisze /utrwal-skill albo na koniec pracy poprosi o zapisanie tego, czego nauczyliśmy się w rozmowie lub projekcie, jako skilla na przyszłość (np. "zrób z tego skill", "utrwal to", "żeby następnym razem poszło szybciej").
+description: Zamienia umiejętność wypracowaną w tej rozmowie (albo we wskazanych sesjach) w nowy skill lub aktualizację istniejącego. Uruchamiaj ręcznie na koniec pracy.
 argument-hint: "[podpowiedź, np. notatka docx] [--sesja ID ...]"
 disable-model-invocation: true
 ---
@@ -13,7 +13,7 @@ Cel: następnym razem to samo zadanie ma pójść szybciej, taniej i bez powtarz
 
 Pliki skilla: skrypty w `~/.claude/skills/utrwal-skill/scripts/`, materiały w `~/.claude/skills/utrwal-skill/references/`. Zmienne powłoki nie przetrwają między wywołaniami, więc w każdej komendzie podawaj pełną ścieżkę. Komendy uruchamiaj z katalogu projektu.
 
-Pliki robocze (oś czasu sesji) zapisuj w katalogu scratchpad z kontekstu systemowego, a gdy go nie ma, w `/tmp/`.
+Pliki robocze (oś czasu sesji) zapisuj w katalogu scratchpad z kontekstu systemowego, a gdy go nie ma, w katalogu tymczasowym systemu (`/tmp/` na macOS i Linuksie, `%TEMP%` na Windowsie). Na Windowsie uruchamiaj skrypty przez `python` zamiast `python3`.
 
 ## Zasady
 
@@ -36,7 +36,7 @@ python3 ~/.claude/skills/utrwal-skill/scripts/wyciagnij_rozmowe.py --sesja ID [I
 
 Bez `--sesja` skrypt czyta bieżącą sesję (zmienna `CLAUDE_CODE_SESSION_ID`). Gdy użytkownik nie wie, które sesje wskazać, pokaż mu `--lista` i zapytaj.
 
-Wynik to **skrót**: wiadomości użytkownika do ok. 3000 znaków, pozostałe wpisy do 300, z pominięciem treści zapisywanych plików i udanych wyników narzędzi. Gdy skrócony fragment jest kluczowy (np. wymagania wklejone przez użytkownika albo końcowe podsumowanie asystenta), uruchom skrypt ponownie z `--max-znakow 2000` (podnosi limit dla wszystkich wpisów). **Kod z sesji:** `--sesja ID --pliki` pokazuje pliki zapisane w sesji (Write/Edit) i to, czy są jeszcze na dysku. `--sesja ID --pliki <fragment ścieżki>` wypisuje ich treść: z dysku, jeśli plik istnieje, albo odtworzoną z sesji z ostrzeżeniem, czego nie udało się odtworzyć (zmiany przez Bash). Pliki utworzone wyłącznie przez Bash (`cp`, heredoc) nie są na tej liście, więc szukaj ich w projekcie. Kod w scratchpadzie (`/private/tmp/...` albo `/tmp/...`) jest tymczasowy i znika po restarcie komputera. Potrzebne fragmenty przenieś do `scripts/` nowego skilla, nie odwołuj się do nich. Praca subagentów nie jest w wyniku (widać tylko zlecenie i raport); jeśli była kluczowa, zapisz to w propozycji jako ograniczenie.
+Wynik to **skrót**: wiadomości użytkownika do ok. 3000 znaków, pozostałe wpisy do 300, z pominięciem treści zapisywanych plików i udanych wyników narzędzi. Gdy skrócony fragment jest kluczowy (np. wymagania wklejone przez użytkownika albo końcowe podsumowanie asystenta), uruchom skrypt ponownie z `--max-znakow 2000` (podnosi limit dla wszystkich wpisów). **Kod z sesji:** `--sesja ID --pliki` pokazuje pliki zapisane w sesji (Write/Edit) i to, czy są jeszcze na dysku. `--sesja ID --pliki <fragment ścieżki>` wypisuje ich treść: z dysku, jeśli plik istnieje, albo odtworzoną z sesji z ostrzeżeniem, czego nie udało się odtworzyć (zmiany przez Bash). Pliki utworzone wyłącznie przez Bash (`cp`, heredoc) nie są na tej liście, więc szukaj ich w projekcie. Kod w scratchpadzie (`/private/tmp/...` albo `/tmp/...`) jest tymczasowy i znika po restarcie komputera. Potrzebne fragmenty przenieś do `scripts/` nowego skilla, nie odwołuj się do nich. Subagenci: w wyniku widać zlecenie (`- Agent: ...`) i raport końcowy (`<< RAPORT SUBAGENTA`), ale nie przebieg ich pracy (jest w osobnych plikach); jeśli był kluczowy, zapisz to w propozycji jako ograniczenie. Fragmenty wyglądające na sekrety skrypt zamienia na `[SEKRET]` i podaje ich liczbę na końcu wyniku; nie przenoś ich do skilla.
 
 ## Krok 2. Analiza
 

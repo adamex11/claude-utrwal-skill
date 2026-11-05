@@ -2,8 +2,9 @@
 """Zwięzła oś czasu sesji Claude Code z pliku .jsonl.
 
 Zostawia to, z czego da się odtworzyć umiejętność: wiadomości użytkownika,
-skrócony tekst asystenta, wywołania narzędzi i błędy. Pomija myślenie modelu,
-pełne treści zapisywanych plików, wstrzyknięte treści skilli i rekordy techniczne.
+skrócony tekst asystenta, wywołania narzędzi, błędy i raporty subagentów. Pomija
+myślenie modelu, pełne treści zapisywanych plików, wstrzyknięte treści skilli
+i rekordy techniczne. Fragmenty wyglądające na sekrety (tokeny, klucze) maskuje.
 
 Użycie:
   python3 wyciagnij_rozmowe.py                    # bieżąca sesja (CLAUDE_CODE_SESSION_ID)
@@ -30,6 +31,41 @@ POMIJANE_TYPY = {
 }
 # Narzędzia, z których wystarczy ścieżka pliku (treść jest w samym pliku)
 TYLKO_SCIEZKA = {"Write", "Edit", "MultiEdit", "NotebookEdit", "Read"}
+
+
+# Fragmenty wyglądające na sekrety. Maskujemy wartość, zostawiając rodzaj, żeby było widać, co tam stało.
+SEKRETY = [
+    (re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}"), r"\1[SEKRET]"),
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"), "[SEKRET:sk-...]"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"), "[SEKRET:github-token]"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "[SEKRET:github-token]"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[SEKRET:aws-key]"),
+    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"), "[SEKRET:slack-token]"),
+    # tylko wartości w cudzysłowie, żeby nie psuć kodu w stylu token = os.environ["X"]
+    (re.compile(r"""((?:password|passwd|secret|token|api[_-]?key)\s*[=:]\s*["'])[^"'\s]{8,}(["'])""", re.I),
+     r"\1[SEKRET]\2"),
+]
+zamaskowane = 0
+
+
+def maskuj(tekst):
+    global zamaskowane
+    for wzorzec, zamiana in SEKRETY:
+        tekst, ile = wzorzec.subn(zamiana, tekst)
+        zamaskowane += ile
+    return tekst
+
+
+def rekordy(plik):
+    """Rekordy JSONL po kolei; uszkodzone linie i niepoprawne znaki są pomijane, a nie przerywają pracy."""
+    with plik.open(encoding="utf-8", errors="replace") as f:
+        for surowa in f:
+            try:
+                r = json.loads(surowa)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(r, dict):
+                yield r
 
 
 def koduj(sciezka):
@@ -60,7 +96,7 @@ def znajdz_plik(sesja):
 
 
 def skroc(tekst, n):
-    tekst = str(tekst).strip()
+    tekst = maskuj(str(tekst).strip())
     return tekst if len(tekst) <= n else tekst[:n] + f" [...+{len(tekst) - n} zn.]"
 
 
@@ -89,22 +125,43 @@ def tekst_uzytkownika(tresc):
         tresc = "\n".join(b.get("text", "") for b in tresc if isinstance(b, dict) and b.get("type") == "text")
     if not tresc:
         return None
-    polecenie = re.search(r"<command-name>(.*?)</command-name>.*?(?:<command-args>(.*?)</command-args>)?", tresc, re.S)
-    if polecenie:
-        return f"{polecenie.group(1)} {polecenie.group(2) or ''}".strip()
+    # Nazwa i argumenty szukane osobno: między znacznikami bywa nowa linia i <command-message>
+    nazwa = re.search(r"<command-name>(.*?)</command-name>", tresc, re.S)
+    if nazwa:
+        argumenty = re.search(r"<command-args>(.*?)</command-args>", tresc, re.S)
+        return f"{nazwa.group(1).strip()} {argumenty.group(1).strip() if argumenty else ''}".strip()
     if tresc.lstrip().startswith(("<local-command", "<command-message", "<system-reminder", "<task-notification", "Base directory for this skill")):
         return None
     return tresc
 
 
+def raport_subagenta(r):
+    """Raport subagenta: rekord isMeta z origin.kind == "peer". Zwraca (nazwa, treść) albo None."""
+    origin = r.get("origin") or {}
+    if origin.get("kind") != "peer" or not origin.get("body"):
+        return None
+    tresc = origin["body"]
+    # Zdejmujemy ramkę harnessu ("... The report follows:") i wcięcie, które dodaje każdej linii raportu
+    znacznik = "The report follows:"
+    if znacznik in tresc:
+        tresc = tresc.split(znacznik, 1)[1]
+    tresc = "\n".join(linia[2:] if linia.startswith("  ") else linia for linia in tresc.splitlines())
+    return origin.get("name") or "subagent", tresc
+
+
+def powiadomienie_zadania(tekst):
+    """Z <task-notification> zostawia status, opis i wynik zadania w tle (jeśli są)."""
+    pola = {k: re.search(f"<{k}>(.*?)</{k}>", tekst, re.S) for k in ("status", "summary", "result")}
+    pola = {k: m.group(1).strip() for k, m in pola.items() if m}
+    if not pola.get("summary") and not pola.get("result"):
+        return None
+    return pola
+
+
 def os_czasu(plik, n):
     linie = []
     id_narzedzi = {}  # tool_use_id -> krótki opis, żeby błąd wskazywał komendę
-    for surowa in plik.open(encoding="utf-8"):
-        try:
-            r = json.loads(surowa)
-        except json.JSONDecodeError:
-            continue
+    for r in rekordy(plik):
         typ = r.get("type")
         if typ in POMIJANE_TYPY or r.get("isSidechain"):
             continue
@@ -115,6 +172,9 @@ def os_czasu(plik, n):
         tresc = wiadomosc.get("content")
         if typ == "user":
             if r.get("isMeta"):
+                raport = raport_subagenta(r)
+                if raport:
+                    linie.append(f"\n<< RAPORT SUBAGENTA ({raport[0]}): {skroc(raport[1], n * 4)}")
                 continue
             if isinstance(tresc, list):
                 for b in tresc:
@@ -126,6 +186,14 @@ def os_czasu(plik, n):
                         elif b.get("is_error"):
                             zrodlo = id_narzedzi.get(b.get("tool_use_id"), "?")
                             linie.append(f"   !! BŁĄD ({zrodlo}): {skroc(wynik, n)}")
+            surowy = tresc if isinstance(tresc, str) else ""
+            if surowy.lstrip().startswith("<task-notification"):
+                pola = powiadomienie_zadania(surowy)
+                if pola:
+                    linie.append(f"   [ZADANIE W TLE: {pola.get('status', '?')}] {skroc(pola.get('summary', ''), n)}")
+                    if pola.get("result"):
+                        linie.append(f"   [WYNIK ZADANIA] {skroc(pola['result'], n * 2)}")
+                continue
             tekst = tekst_uzytkownika(tresc)
             if tekst:
                 # Wymagania użytkownika to najcenniejszy materiał - limit dużo wyższy niż dla reszty
@@ -148,16 +216,20 @@ def pliki_sesji(plik):
     Treść jest None, gdy plik tylko edytowano (brak pełnego Write w sesji).
     Zmian zrobionych przez Bash (sed, heredoc) nie da się odtworzyć - są tylko oznaczane.
     """
+    # Pierwsze przejście: wywołania, które skończyły się błędem (np. Edit z niepasującym old_string),
+    # nie zmieniły pliku, więc nie wolno ich nakładać
+    nieudane = set()
+    for r in rekordy(plik):
+        if r.get("type") == "user" and isinstance((r.get("message") or {}).get("content"), list):
+            for b in r["message"]["content"]:
+                if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("is_error"):
+                    nieudane.add(b.get("tool_use_id"))
     pliki = {}
-    for surowa in plik.open(encoding="utf-8"):
-        try:
-            r = json.loads(surowa)
-        except json.JSONDecodeError:
-            continue
+    for r in rekordy(plik):
         if r.get("type") != "assistant" or r.get("isSidechain"):
             continue
         for b in (r.get("message") or {}).get("content") or []:
-            if not isinstance(b, dict) or b.get("type") != "tool_use":
+            if not isinstance(b, dict) or b.get("type") != "tool_use" or b.get("id") in nieudane:
                 continue
             w = b.get("input") or {}
             if b.get("name") == "Bash":
@@ -201,14 +273,14 @@ def raport_plikow(plik, wzorce):
         if Path(sciezka).exists():
             # Plik na dysku to wersja ostateczna (obejmuje też zmiany z Bash i z późniejszych sesji)
             linie.append(f"\n===== {sciezka} [treść z dysku] =====")
-            linie.append(Path(sciezka).read_text(encoding="utf-8", errors="replace"))
+            linie.append(maskuj(Path(sciezka).read_text(encoding="utf-8", errors="replace")))
             continue
         uwagi = [u for u, warunek in (("niektóre Edit nie dały się nałożyć", not ok),
                                        ("plik zmieniano też przez Bash - te zmiany nie są uwzględnione", bash)) if warunek]
         linie.append(f"\n===== {sciezka} [odtworzone z sesji, pliku nie ma na dysku; Edit: {edycje}] =====")
         if uwagi:
             linie.append("[UWAGA: " + "; ".join(uwagi) + "]")
-        linie.append(tresc if tresc is not None else "[brak pełnej treści - plik tylko edytowano w tej sesji]")
+        linie.append(maskuj(tresc) if tresc is not None else "[brak pełnej treści - plik tylko edytowano w tej sesji]")
     if not linie:
         linie.append(f"Żaden zapisany plik nie pasuje do: {' '.join(wzorce)}")
     return linie
@@ -225,11 +297,7 @@ def lista_sesji(cwd):
     pliki = [p for f in foldery for p in f.glob("*.jsonl")]
     for plik in sorted(pliki, key=lambda p: p.stat().st_mtime):
         tytul, pierwsza = "", ""
-        for surowa in plik.open(encoding="utf-8"):
-            try:
-                r = json.loads(surowa)
-            except json.JSONDecodeError:
-                continue
+        for r in rekordy(plik):
             if r.get("type") == "ai-title":
                 tytul = r.get("aiTitle", "")
             elif not pierwsza and r.get("type") == "user" and not r.get("isMeta"):
@@ -242,8 +310,9 @@ def lista_sesji(cwd):
 
 def main():
     # Windows domyślnie wypisuje w kodowaniu konsoli, a oś czasu ma polskie znaki
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+    for strumien in (sys.stdout, sys.stderr):
+        if hasattr(strumien, "reconfigure"):
+            strumien.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--sesja", nargs="+", help="id sesji (domyślnie CLAUDE_CODE_SESSION_ID)")
     p.add_argument("--lista", action="store_true", help="lista sesji projektu z bieżącego katalogu")
@@ -271,8 +340,10 @@ def main():
                 continue
             linie += os_czasu(plik, a.max_znakow)
             if (plik.parent / s / "subagents").is_dir():
-                linie.append("\n[UWAGA] Sesja ma subagentów - ich praca jest w osobnych plikach, tu widać tylko zlecenia.")
+                linie.append("\n[UWAGA] Sesja ma subagentów - widać ich zlecenia i raporty końcowe, a przebieg ich pracy jest w osobnych plikach.")
 
+    if zamaskowane:
+        linie.append(f"\n[UWAGA] Zamaskowano {zamaskowane} fragm. wyglądających na sekrety ([SEKRET]). Nie przenoś ich do skilla.")
     wynik = "\n".join(linie) + "\n"
     if a.wyjscie:
         Path(a.wyjscie).write_text(wynik, encoding="utf-8")

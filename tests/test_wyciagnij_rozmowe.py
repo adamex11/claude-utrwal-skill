@@ -182,5 +182,89 @@ class ListaSesji(Baza):
         self.assertIn("Brak sesji", out)
 
 
+class Recenzja(Baza):
+    """Przypadki z recenzji: argumenty komend, raporty subagentów, uszkodzone dane, sekrety, nieudane Edit."""
+
+    def test_argumenty_komendy_slash(self):
+        self.zapisz_sesje("s1", [wpis_uzytkownika(
+            "<command-name>/raport</command-name>\n            <command-message>raport</command-message>\n"
+            "            <command-args>ABC 2026</command-args>")])
+        _, out = self.uruchom("--sesja", "s1")
+        self.assertIn(">> UŻYTKOWNIK: /raport ABC 2026", out)
+
+    def test_raport_subagenta_i_zadanie_w_tle(self):
+        cialo = ("[Subagent hand-back] Ramka harnessu. The report follows:\n"
+                 "  ## Wynik recenzji\n  Znaleziono 2 problemy w parserze.")
+        self.zapisz_sesje("s1", [
+            narzedzie("t1", "Agent", {"description": "Recenzja parsera", "prompt": "Sprawdź parser"}),
+            wpis_uzytkownika(cialo, isMeta=True, origin={"kind": "peer", "name": "general-purpose", "body": cialo}),
+            wpis_uzytkownika("<task-notification>\n<task-id>x</task-id>\n<status>completed</status>\n"
+                             "<summary>Agent \"Recenzja parsera\" finished</summary>\n"
+                             "<result>Parser poprawiony</result>\n</task-notification>"),
+        ])
+        _, out = self.uruchom("--sesja", "s1")
+        self.assertIn("<< RAPORT SUBAGENTA (general-purpose):", out)
+        self.assertIn("Znaleziono 2 problemy w parserze.", out)
+        self.assertNotIn("Ramka harnessu", out)
+        self.assertIn("[ZADANIE W TLE: completed]", out)
+        self.assertIn("[WYNIK ZADANIA] Parser poprawiony", out)
+
+    def test_uszkodzony_jsonl_i_ucięty_znak(self):
+        plik = self.zapisz_sesje("s1", [wpis_uzytkownika("Pierwsza prośba")])
+        with plik.open("ab") as f:
+            f.write(b'{"type": "user", "message": {"content": "niedoko\n')  # urwany JSON
+            f.write(b"\xc5\n")  # ucięty znak wielobajtowy (pierwszy bajt "ł")
+            f.write(json.dumps(wpis_uzytkownika("Druga prośba"), ensure_ascii=False).encode("utf-8") + b"\n")
+        kod, out = self.uruchom("--sesja", "s1")
+        self.assertEqual(kod, 0, out)
+        self.assertIn("Pierwsza prośba", out)
+        self.assertIn("Druga prośba", out)
+
+    def test_streszczenie_po_kompakcji(self):
+        self.zapisz_sesje("s1", [wpis_uzytkownika("Podsumowanie wcześniejszej pracy: raport ABC", isCompactSummary=True)])
+        _, out = self.uruchom("--sesja", "s1")
+        self.assertIn("[STRESZCZENIE PO KOMPAKCJI]", out)
+        self.assertIn("raport ABC", out)
+
+    def test_nieudany_edit_nie_jest_nakladany(self):
+        sciezka = str(Path(self.tmp.name) / "usuniety.py")
+        self.zapisz_sesje("s1", [
+            narzedzie("t1", "Write", {"file_path": sciezka, "content": "x = 1\n"}),
+            narzedzie("t2", "Edit", {"file_path": sciezka, "old_string": "x = 1", "new_string": "x = 2"}),
+            wynik("t2", "File has been modified since read", blad=True),
+            narzedzie("t3", "Edit", {"file_path": sciezka, "old_string": "x = 1", "new_string": "x = 3"}),
+        ])
+        _, out = self.uruchom("--sesja", "s1", "--pliki", "usuniety")
+        self.assertIn("x = 3", out)
+        self.assertNotIn("x = 2", out)
+
+    def test_polskie_znaki_w_sciezce_projektu(self):
+        projekt = Path(self.tmp.name).resolve() / "Łódź" / "Zażółć" / "projekt"
+        projekt.mkdir(parents=True)
+        folder = self.konfig / "projects" / koduj(projekt)
+        folder.mkdir(parents=True)
+        self.zapisz_sesje("pl", [{"type": "ai-title", "aiTitle": "Gęślą jaźń"}], folder=folder)
+        kod, out = self.uruchom("--lista", "--projekt", str(projekt))
+        self.assertEqual(kod, 0, out)
+        self.assertIn("Gęślą jaźń", out)
+
+    def test_maskowanie_sekretow(self):
+        token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2"
+        sciezka = Path(self.tmp.name) / "klient.py"
+        sciezka.write_text('API_KEY = "abcdefgh12345678"\nklucz = os.environ["API_KEY"]\n', encoding="utf-8")
+        self.zapisz_sesje("s1", [
+            narzedzie("t1", "Bash", {"command": f"curl -H 'Authorization: Bearer abcdef123456789' -H 'X: {token}' x"}),
+            narzedzie("t2", "Write", {"file_path": str(sciezka), "content": "stara"}),
+        ])
+        _, out = self.uruchom("--sesja", "s1")
+        self.assertNotIn("abcdef123456789", out)
+        self.assertNotIn(token, out)
+        self.assertIn("Bearer [SEKRET]", out)
+        self.assertIn("Zamaskowano", out)
+        _, pliki = self.uruchom("--sesja", "s1", "--pliki", "klient")
+        self.assertNotIn("abcdefgh12345678", pliki)
+        self.assertIn('os.environ["API_KEY"]', pliki)  # kod bez sekretu zostaje nietknięty
+
+
 if __name__ == "__main__":
     unittest.main()

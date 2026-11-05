@@ -23,16 +23,24 @@ import sys
 from pathlib import Path
 
 # Claude Code trzyma zapisy sesji w <katalog konfiguracji>/projects (domyślnie ~/.claude)
-PROJEKTY = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "projects"
+PROJEKTY = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser() / "projects"
 # Rekordy bez treści rozmowy
 POMIJANE_TYPY = {
     "file-history-snapshot", "ai-title", "last-prompt", "mode", "permission-mode",
     "queue-operation", "attachment", "system", "atis-latch", "summary",
 }
-# Narzędzia, z których wystarczy ścieżka pliku (treść jest w samym pliku)
+# Narzędzia, z których w osi czasu wystarczy ścieżka pliku (treść jest w samym pliku)
 TYLKO_SCIEZKA = {"Write", "Edit", "MultiEdit", "NotebookEdit", "Read"}
+# Komendy Bash, które mogą zmienić istniejący plik (przekierowanie, edycja w miejscu, nadpisanie)
+MODYFIKUJACY_BASH = re.compile(
+    r">|\b(?:sed|perl|ruby)\s+(?:\S+\s+)*?-i|--(?:in-place|write|fix)\b|\bgofmt\s+-w"
+    r"|\b(?:tee|mv|cp|rm|patch|truncate|dd|black|isort|prettier|rustfmt|ruff\s+format"
+    r"|git\s+(?:checkout|restore|apply|stash|reset))\b")
+# Przekierowania, które nie zapisują pliku (2>&1, >/dev/null) - zdejmowane przed sprawdzeniem
+PRZEKIEROWANIE_BEZ_PLIKU = re.compile(r"\d*>>?\s*(?:&\d+|/dev/null)")
 
 
+NAZWA_SEKRETU = r"(?:password|passwd|secret|token|api[_-]?key|access[_-]?key)"
 # Fragmenty wyglądające na sekrety. Maskujemy wartość, zostawiając rodzaj, żeby było widać, co tam stało.
 SEKRETY = [
     (re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}"), r"\1[SEKRET]"),
@@ -41,16 +49,31 @@ SEKRETY = [
     (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "[SEKRET:github-token]"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[SEKRET:aws-key]"),
     (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"), "[SEKRET:slack-token]"),
-    # tylko wartości w cudzysłowie, żeby nie psuć kodu w stylu token = os.environ["X"]
-    (re.compile(r"""((?:password|passwd|secret|token|api[_-]?key)\s*[=:]\s*["'])[^"'\s]{8,}(["'])""", re.I),
+    # Tylko wartości w cudzysłowie, żeby nie psuć kodu w stylu token = os.environ["X"]. Nazwa z krótką
+    # listą końcówek (SECRET_KEY, client_secret, "api_key":), żeby nie łapać tokenizer, token_url, secret_name
+    (re.compile(r"""(["']?\b\w*""" + NAZWA_SEKRETU + r"""(?:_?(?:key|id|value|hash|str|string)|s)?["']?\s*[=:]\s*["'])"""
+                r"""(?!\[SEKRET)[^"'\s]{8,}(["'])""", re.I),
      r"\1[SEKRET]\2"),
+]
+# W komendach Bash i argumentach skilli sekrety bywają bez cudzysłowu: export NOTION_TOKEN=..., --token=...,
+# --token wartość. Pomijamy odwołania do zmiennych ($X), wartości w cudzysłowie (łapie je wzorzec ogólny)
+# i fragmenty już zamaskowane.
+SEKRETY_BASH = [
+    (re.compile(r"""(\b\w*""" + NAZWA_SEKRETU + r"""(?:_?(?:key|id|value|hash))?=)(?![$"'\[])[^\s"';&|]{8,}""", re.I),
+     r"\1[SEKRET]"),
+    (re.compile(r"""(--?""" + NAZWA_SEKRETU + r"""\s+)(?![$"'\[-])[^\s"';&|]{8,}""", re.I), r"\1[SEKRET]"),
 ]
 zamaskowane = 0
 
 
-def maskuj(tekst):
+def maskuj_komende(tekst):
+    """Najpierw wzorce rozpoznające rodzaj sekretu (github-token, sk-...), potem luźniejsze z Bash."""
+    return maskuj(maskuj(str(tekst)), SEKRETY_BASH)
+
+
+def maskuj(tekst, wzorce=SEKRETY):
     global zamaskowane
-    for wzorzec, zamiana in SEKRETY:
+    for wzorzec, zamiana in wzorce:
         tekst, ile = wzorzec.subn(zamiana, tekst)
         zamaskowane += ile
     return tekst
@@ -66,6 +89,40 @@ def rekordy(plik):
                 continue
             if isinstance(r, dict):
                 yield r
+
+
+def ostatni_tytul(plik, koncowka=256 * 1024):
+    """Najnowszy ai-title. Claude Code dopisuje go co kilkadziesiąt rekordów, więc zwykle wystarcza końcówka pliku."""
+    def szukaj(linie):
+        tytul = ""
+        for surowa in linie:
+            if '"ai-title"' not in surowa:  # tani filtr przed parsowaniem JSON
+                continue
+            try:
+                r = json.loads(surowa)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(r, dict) and r.get("type") == "ai-title":
+                tytul = r.get("aiTitle", "") or tytul
+        return tytul
+
+    with plik.open("rb") as f:
+        rozmiar = f.seek(0, os.SEEK_END)
+        f.seek(max(0, rozmiar - koncowka))
+        tytul = szukaj(f.read().decode("utf-8", errors="replace").split("\n"))  # jak rekordy(): splitlines dzieli też na U+2028
+    if tytul or rozmiar <= koncowka:
+        return tytul
+    with plik.open(encoding="utf-8", errors="replace") as f:
+        return szukaj(f)
+
+
+def pierwsza_wiadomosc(plik):
+    for r in rekordy(plik):
+        if r.get("type") == "user" and not r.get("isMeta"):
+            tekst = tekst_uzytkownika((r.get("message") or {}).get("content"))
+            if tekst:
+                return tekst
+    return ""
 
 
 def koduj(sciezka):
@@ -109,11 +166,11 @@ def tekst_wyniku(blok):
 
 def opis_narzedzia(nazwa, wejscie, n):
     if nazwa == "Bash":
-        return f"$ {skroc(wejscie.get('command', ''), n)}"
+        return f"$ {skroc(maskuj_komende(wejscie.get('command', '')), n)}"
     if nazwa in TYLKO_SCIEZKA:
         return wejscie.get("file_path") or wejscie.get("notebook_path") or ""
     if nazwa == "Skill":
-        return f"{wejscie.get('skill', '')} {wejscie.get('args', '')}".strip()
+        return skroc(maskuj_komende(f"{wejscie.get('skill', '')} {wejscie.get('args', '')}"), n)
     if nazwa == "Agent":
         return f"[{wejscie.get('model', '')}] {wejscie.get('description', '')}: {skroc(wejscie.get('prompt', ''), n // 2)}"
     return skroc(json.dumps(wejscie, ensure_ascii=False), n // 2)
@@ -166,7 +223,7 @@ def os_czasu(plik, n):
         if typ in POMIJANE_TYPY or r.get("isSidechain"):
             continue
         if r.get("isCompactSummary"):
-            linie.append(f"\n[STRESZCZENIE PO KOMPAKCJI]\n{skroc(tekst_uzytkownika(r['message'].get('content')) or '', n * 4)}")
+            linie.append(f"\n[STRESZCZENIE PO KOMPAKCJI]\n{skroc(tekst_uzytkownika((r.get('message') or {}).get('content')) or '', n * 4)}")
             continue
         wiadomosc = r.get("message") or {}
         tresc = wiadomosc.get("content")
@@ -233,9 +290,12 @@ def pliki_sesji(plik):
                 continue
             w = b.get("input") or {}
             if b.get("name") == "Bash":
-                komenda = w.get("command", "")
+                komenda = str(w.get("command", ""))
+                if not MODYFIKUJACY_BASH.search(PRZEKIEROWANIE_BEZ_PLIKU.sub("", komenda)):
+                    continue  # cat, grep, python3 plik.py itp. nie zmieniają pliku
                 for sc, dane in pliki.items():
-                    if Path(sc).name in komenda:
+                    # nazwa jako osobne słowo, a nie fragment innej (a.js w data.json)
+                    if re.search(r"(?<![\w.-])" + re.escape(Path(sc).name) + r"(?![\w.-])", komenda):
                         dane[3] = True
                 continue
             sciezka = w.get("file_path")
@@ -296,12 +356,8 @@ def lista_sesji(cwd):
         wiersze += [f"  {f.name}" for f in foldery]
     pliki = [p for f in foldery for p in f.glob("*.jsonl")]
     for plik in sorted(pliki, key=lambda p: p.stat().st_mtime):
-        tytul, pierwsza = "", ""
-        for r in rekordy(plik):
-            if r.get("type") == "ai-title":
-                tytul = r.get("aiTitle", "")
-            elif not pierwsza and r.get("type") == "user" and not r.get("isMeta"):
-                pierwsza = tekst_uzytkownika((r.get("message") or {}).get("content")) or ""
+        # Nie czytamy całych plików: tytuł z końcówki, pierwsza wiadomość z początku
+        tytul, pierwsza = ostatni_tytul(plik), pierwsza_wiadomosc(plik)
         czas = datetime.datetime.fromtimestamp(plik.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
         rozmiar = plik.stat().st_size // 1024
         wiersze.append(f"{plik.stem}  {czas}  {rozmiar:>6} KB  {tytul or '-'}  | {skroc(pierwsza, 70)}")

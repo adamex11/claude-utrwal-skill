@@ -30,13 +30,18 @@ Głównym źródłem jest rozmowa, którą masz w kontekście. Skrypt uruchom ty
 - użytkownik podał `--sesja`.
 
 ```bash
-python3 ~/.claude/skills/utrwal-skill/scripts/wyciagnij_rozmowe.py --lista     # sesje projektu: id, data, rozmiar, tytuł
+python3 ~/.claude/skills/utrwal-skill/scripts/wyciagnij_rozmowe.py --lista     # sesje projektu: id, czas ostatniej zmiany, rozmiar, tytuł
 python3 ~/.claude/skills/utrwal-skill/scripts/wyciagnij_rozmowe.py --sesja ID [ID ...] --wyjscie <scratchpad>/os.md
 ```
 
 Bez `--sesja` skrypt czyta bieżącą sesję (zmienna `CLAUDE_CODE_SESSION_ID`). Gdy użytkownik nie wie, które sesje wskazać, pokaż mu `--lista` i zapytaj.
 
-Wynik to **skrót**: wiadomości użytkownika do ok. 3000 znaków, pozostałe wpisy do 300, z pominięciem treści zapisywanych plików i udanych wyników narzędzi. Gdy skrócony fragment jest kluczowy (np. wymagania wklejone przez użytkownika albo końcowe podsumowanie asystenta), uruchom skrypt ponownie z `--max-znakow 2000` (podnosi limit dla wszystkich wpisów). **Kod z sesji:** `--sesja ID --pliki` pokazuje pliki zapisane w sesji (Write/Edit) i to, czy są jeszcze na dysku. `--sesja ID --pliki <fragment ścieżki>` wypisuje ich treść: z dysku, jeśli plik istnieje, albo odtworzoną z sesji z ostrzeżeniem, czego nie udało się odtworzyć (zmiany przez Bash). Pliki utworzone wyłącznie przez Bash (`cp`, heredoc) nie są na tej liście, więc szukaj ich w projekcie. Kod w scratchpadzie (`/private/tmp/...` albo `/tmp/...`) jest tymczasowy i znika po restarcie komputera. Potrzebne fragmenty przenieś do `scripts/` nowego skilla, nie odwołuj się do nich. Subagenci: w wyniku widać zlecenie (`- Agent: ...`) i raport końcowy (`<< RAPORT SUBAGENTA`), ale nie przebieg ich pracy (jest w osobnych plikach); jeśli był kluczowy, zapisz to w propozycji jako ograniczenie. Fragmenty wyglądające na sekrety skrypt zamienia na `[SEKRET]` i podaje ich liczbę na końcu wyniku; nie przenoś ich do skilla.
+Wynik to **skrót**: wiadomości użytkownika do ok. 3000 znaków, pozostałe wpisy do 300, z pominięciem treści zapisywanych plików i udanych wyników narzędzi. Gdy skrócony fragment jest kluczowy (np. wymagania wklejone przez użytkownika albo końcowe podsumowanie asystenta), uruchom skrypt ponownie z `--max-znakow 2000` (podnosi limit dla wszystkich wpisów).
+
+- **Kod z sesji:** `--sesja ID --pliki` pokazuje pliki zapisane w sesji (Write/Edit) i to, czy są jeszcze na dysku. `--sesja ID --pliki <fragment ścieżki>` wypisuje ich treść: z dysku, jeśli plik istnieje, albo odtworzoną z sesji z ostrzeżeniem, czego nie udało się odtworzyć (zmiany przez Bash). Pliki utworzone wyłącznie przez Bash (`cp`, heredoc) nie są na tej liście, więc szukaj ich w projekcie.
+- **Scratchpad:** kod w `/private/tmp/...` albo `/tmp/...` jest tymczasowy i znika po restarcie komputera. Potrzebne fragmenty przenieś do `scripts/` nowego skilla, nie odwołuj się do nich.
+- **Subagenci:** w wyniku widać zlecenie (`- Agent: ...`) i raport końcowy (`<< RAPORT SUBAGENTA`), ale nie przebieg ich pracy (jest w osobnych plikach). Jeśli był kluczowy, zapisz to w propozycji jako ograniczenie.
+- **Sekrety:** fragmenty wyglądające na sekrety skrypt zamienia na `[SEKRET]` i podaje ich liczbę na końcu wyniku. Nie przenoś ich do skilla. W kodzie kopiowanym do `scripts/` zastąp `[SEKRET]` odczytem zmiennej środowiskowej (np. `os.environ["API_KEY"]`), nie usuwaj całej linii. Maskowane są też placeholdery w rodzaju `"YOUR_API_KEY_HERE"`.
 
 ## Krok 2. Analiza
 
@@ -51,7 +56,7 @@ Wynik to **skrót**: wiadomości użytkownika do ok. 3000 znaków, pozostałe wp
    - **Kod, który zadziałał i się powtórzy** -> skrypt w `scripts/`. Jeśli skrypty już leżą w projekcie, zdecyduj: przenieść (jedno źródło) czy skopiować (dwie kopie do utrzymania).
    - **Kod długi i specyficzny dla przypadku** (np. generator dokumentu z treścią na sztywno): nie zostawiaj go jako "napisz X". Zrób szkielet w `scripts/`: **zacznij od kopii działającego pliku** (`--pliki`), a potem zamień zaszytą treść i dane na odczyt z pliku JSON lub argumentów. Logika, układ i poprawki z sesji (np. przesunięte podpisy, wyrównania) zostają bez zmian. Nie pisz generatora od nowa, bo nowy kod nie przeszedł kontroli, którą przeszedł kod z sesji. Najwięcej tokenów kosztuje właśnie pisanie takiego kodu od zera.
    - **Kroki, które robi już inny skill lub skrypt** (lista skilli, `scripts/` istniejących skilli, skrypty projektu): odwołaj się do nich zamiast opisywać krok od nowa.
-3. Sprawdź istniejące skille: lista z kontekstu systemowego oraz `ls .claude/skills/ ~/.claude/skills/` (skill utworzony w innej sesji może nie być na liście). Gdy któryś pokrywa się zakresem, zaproponuj **aktualizację** zamiast nowego skilla. Przeczytaj wtedy jego SKILL.md i proponuj tylko to, czego w nim brakuje. Typowy przypadek: skill zbudowano w analizowanej sesji, a wartościowe są błędy z późniejszego użycia, czyli nowe pułapki. Jeśli sesja kończy się na zbudowaniu skilla i nie było późniejszego użycia, wynik to "nic" (ewentualnie z propozycją do CLAUDE.md), chyba że w SKILL.md brakuje kroku, który w sesji okazał się potrzebny.
+3. Sprawdź istniejące skille: lista z kontekstu systemowego oraz `ls .claude/skills/ ~/.claude/skills/ 2>/dev/null` (skill utworzony w innej sesji może nie być na liście). Gdy któryś pokrywa się zakresem, zaproponuj **aktualizację** zamiast nowego skilla. Przeczytaj wtedy jego SKILL.md i proponuj tylko to, czego w nim brakuje. Typowy przypadek: skill zbudowano w analizowanej sesji, a wartościowe są błędy z późniejszego użycia, czyli nowe pułapki. Jeśli sesja kończy się na zbudowaniu skilla i nie było późniejszego użycia, wynik to "nic" (ewentualnie z propozycją do CLAUDE.md), chyba że w SKILL.md brakuje kroku, który w sesji okazał się potrzebny.
 4. Miejsce zapisu:
    - **projekt** (`.claude/skills/<nazwa>/`), gdy skill używa plików, narzędzi lub reguł tego projektu,
    - **globalnie** (`~/.claude/skills/<nazwa>/`), gdy działa w każdym projekcie.

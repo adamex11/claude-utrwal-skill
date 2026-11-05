@@ -103,3 +103,25 @@ Recenzja modelem Fable (ocena 7/10, bez błędów krytycznych). Poprawione:
 | 7 | Nieudane Edity nakładane przy odtwarzaniu | pomijane wywołania z `is_error` |
 
 Drobne: `errors="replace"` przy czytaniu, UTF-8 także na stderr, wskazówki dla Windows w SKILL.md, `description` pisany dla menu (przy `disable-model-invocation: true` model go nie dostaje), wymagany Python 3.9+ zgodnie z CI, 9 nowych testów (27 razem; 8 z nich nie przechodzi na kodzie sprzed poprawek).
+
+## Druga recenzja (8/10)
+
+| # | Problem | Poprawka |
+|---|---|---|
+| N1 | Test bezpiecznej aktualizacji nie sprawdzał wyniku podprocesu, a gałąź przywracania nie była testowana | asercja na zgłoszoną awarię + wariant z awarią przy wstawianiu nowej wersji (test wykrywa usunięcie przywracania) |
+| N2 | Nieusunięty `.utrwal-skill-stary/` przechodził po cichu | komunikat z prośbą o ręczne usunięcie |
+| N3 | Sekrety bez cudzysłowu w Bash (`export X_TOKEN=...`) i w nazwach typu `SECRET_KEY` nie były maskowane | osobny wzorzec dla komend Bash, szerszy wzorzec nazw |
+| N4 | Argumenty narzędzia Skill trafiały do osi czasu bez skracania i maskowania | przechodzą przez `skroc` |
+| N5 | Maskowane placeholdery mogły skłonić do usuwania linii | zdanie w SKILL.md: zastąp zmienną środowiskową |
+
+Odrzucone: N6. Uwaga, że `ubuntu-latest` ma Pythona 3.9, jest nieaktualna: runner to Ubuntu 26.04 i setup-python kończy się błędem "not found for Ubuntu 26.04" (log CI pierwszego commita). Poprawiony tylko komentarz. Drobne z pierwszej recenzji: D2, D5, D9 (akapit podzielony na punkty), D10, D12, D13. D3: zmiana przez Bash tylko przy komendzie modyfikującej (przekierowanie, `sed -i`, `mv`...) i nazwie pliku jako osobnym słowie. D4: `--lista` czyta tytuł z końcówki pliku i pierwszą wiadomość z początku.
+
+## Trzecia recenzja (Fable, 8/10)
+
+| # | Problem | Poprawka |
+|---|---|---|
+| W1 | Rozszerzony wzorzec nazw maskował zwykły kod (`tokenizer = "gpt2"`, `token_url = "https://..."`) | po nazwie tylko krótka lista końcówek (`_key`, `_id`, `_value`...) |
+| W2 | `2>&1` i `>/dev/null` liczone jako zmiana pliku przez Bash; formatery (`prettier --write`, `black`, `sed -e ... -i`) pomijane | przekierowania bez pliku zdejmowane przed sprawdzeniem, formatery dopisane |
+| W3 | Sekrety w kluczach JSON/dict (`{"password": "..."}`, wejścia narzędzi MCP) niemaskowane | opcjonalny cudzysłów wokół nazwy |
+
+Drobne: `split("\n")` zamiast `splitlines()` w `ostatni_tytul` (zgodnie z `rekordy()`), `--token wartość` po spacji maskowane w Bash i argumentach skilli (najpierw wzorce z rodzajem sekretu, już zamaskowane fragmenty nie są liczone drugi raz), `SKILL.md` "czas ostatniej zmiany", łagodniejszy komunikat o nieusuniętej kopii. D6 (ścieżka względna zamiast przepisywania `~/.claude/`) świadomie pominięte: zaszyta ścieżka jest pewniejsza niż poleganie na wstrzykniętej linii "Base directory". Zaakceptowane: fałszywe trafienie `token=...` w treści `git commit -m`. Razem 36 testów.

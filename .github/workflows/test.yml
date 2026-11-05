@@ -14,7 +14,7 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
         python: ['3.9', '3.12']
         exclude:
-          # Najnowszy runner Ubuntu nie ma już Pythona 3.9 (3.9 testujemy na macOS i Windows)
+          # ubuntu-latest to Ubuntu 26.04, dla którego setup-python nie ma Pythona 3.9 (3.9 testujemy na macOS i Windows)
           - os: ubuntu-latest
             python: '3.9'
     steps:

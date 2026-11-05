@@ -149,6 +149,29 @@ class Pliki(Baza):
         self.assertIn("WERSJA_Z_DYSKU", tresc)
         self.assertNotIn("WERSJA_Z_SESJI", tresc)
 
+    def test_bash_bez_zmian_pliku_nie_jest_oznaczany(self):
+        sciezka = str(Path(self.tmp.name) / "a.js")
+        self.zapisz_sesje("s1", [
+            narzedzie("t1", "Write", {"file_path": sciezka, "content": "x"}),
+            narzedzie("t2", "Bash", {"command": "node a.js 2>&1 | tail && cat a.js 2>/dev/null"}),  # uruchomienie i odczyt
+            narzedzie("t3", "Bash", {"command": "sed -i '' s/x/y/ data.json"}),  # inny plik zawierający "a.js"
+        ])
+        _, lista = self.uruchom("--sesja", "s1", "--pliki")
+        self.assertNotIn("zmieniany też przez Bash", lista)
+        self.zapisz_sesje("s2", [
+            narzedzie("t1", "Write", {"file_path": sciezka, "content": "x"}),
+            narzedzie("t2", "Bash", {"command": "echo y >> a.js"}),
+        ])
+        _, lista = self.uruchom("--sesja", "s2", "--pliki")
+        self.assertIn("zmieniany też przez Bash", lista)
+        for komenda in ("npx prettier --write a.js", "sed -e s/x/y/ -i a.js", "python3 gen.py > a.js 2>&1"):
+            self.zapisz_sesje("s3", [
+                narzedzie("t1", "Write", {"file_path": sciezka, "content": "x"}),
+                narzedzie("t2", "Bash", {"command": komenda}),
+            ])
+            _, lista = self.uruchom("--sesja", "s3", "--pliki")
+            self.assertIn("zmieniany też przez Bash", lista, komenda)
+
     def test_brak_dopasowania(self):
         self.zapisz_sesje("s1", [narzedzie("t1", "Write", {"file_path": "/x/a.py", "content": "x"})])
         _, out = self.uruchom("--sesja", "s1", "--pliki", "nieistnieje")
@@ -164,6 +187,19 @@ class ListaSesji(Baza):
         self.assertIn("Raport ABC", out)
         self.assertIn("Pierwsza prośba", out)
         self.assertNotIn("przenoszony", out)
+
+    def test_najnowszy_tytul_z_dlugiej_sesji(self):
+        dlugie = [wpis_uzytkownika("Pierwsza prośba"), {"type": "ai-title", "aiTitle": "Stary tytuł"}]
+        dlugie += [tekst_asystenta("x" * 1000) for _ in range(400)]  # ok. 400 KB, więcej niż czytana końcówka
+        dlugie += [{"type": "ai-title", "aiTitle": "Nowy tytuł"}]
+        self.zapisz_sesje("s1", dlugie)
+        self.zapisz_sesje("s2", [{"type": "ai-title", "aiTitle": "Tylko na początku"}]
+                          + [tekst_asystenta("x" * 1000) for _ in range(400)])
+        _, out = self.uruchom("--lista")
+        self.assertIn("Nowy tytuł", out)
+        self.assertNotIn("Stary tytuł", out)
+        self.assertIn("Pierwsza prośba", out)
+        self.assertIn("Tylko na początku", out)  # brak tytułu w końcówce = czytamy cały plik
 
     def test_sesje_sprzed_przeniesienia_projektu(self):
         # Ta sama końcówka ścieżki (Kurs/Day 4/moj-projekt), ale inny początek = projekt przeniesiony
@@ -187,8 +223,8 @@ class Recenzja(Baza):
 
     def test_argumenty_komendy_slash(self):
         self.zapisz_sesje("s1", [wpis_uzytkownika(
-            "<command-name>/raport</command-name>\n            <command-message>raport</command-message>\n"
-            "            <command-args>ABC 2026</command-args>")])
+            "<command-message>raport</command-message>\n<command-name>/raport</command-name>\n"
+            "<command-args>ABC 2026</command-args>")])
         _, out = self.uruchom("--sesja", "s1")
         self.assertIn(">> UŻYTKOWNIK: /raport ABC 2026", out)
 
@@ -264,6 +300,80 @@ class Recenzja(Baza):
         _, pliki = self.uruchom("--sesja", "s1", "--pliki", "klient")
         self.assertNotIn("abcdefgh12345678", pliki)
         self.assertIn('os.environ["API_KEY"]', pliki)  # kod bez sekretu zostaje nietknięty
+
+    def test_sekrety_bez_cudzyslowu_i_w_argumentach_skilla(self):
+        token = "ghp_" + "Z9y8X7w6V5u4T3s2R1q0P9o8"
+        self.zapisz_sesje("s1", [
+            narzedzie("t1", "Bash", {"command": "export NOTION_TOKEN=secret_abcdef123456 && "
+                                                "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI123 aws s3 ls && "
+                                                "export TOKEN=$INNA_ZMIENNA"}),
+            narzedzie("t2", "Write", {"file_path": "/x/ustawienia.py", "content": "x"}),
+            narzedzie("t3", "Skill", {"skill": "publikuj", "args": f"--token {token}"}),
+        ])
+        _, out = self.uruchom("--sesja", "s1")
+        self.assertNotIn("secret_abcdef123456", out)
+        self.assertNotIn("wJalrXUtnFEMI123", out)
+        self.assertIn("NOTION_TOKEN=[SEKRET]", out)
+        self.assertIn("TOKEN=$INNA_ZMIENNA", out)  # odwołanie do zmiennej to nie sekret
+        self.assertNotIn(token, out)
+        self.assertIn("publikuj --token [SEKRET:github-token]", out)
+
+    def test_kod_z_podobnymi_nazwami_nie_jest_maskowany(self):
+        sciezka = Path(self.tmp.name) / "model.py"
+        kod = ('tokenizer = "gpt2-medium"\ntoken_url = "https://oauth2.googleapis.com/token"\n'
+               'secret_name = "prod/database"\n')
+        sciezka.write_text(kod, encoding="utf-8")
+        self.zapisz_sesje("s1", [
+            narzedzie("t1", "Write", {"file_path": str(sciezka), "content": "x"}),
+            narzedzie("t2", "Bash", {"command": "MAX_TOKENS=100000000 TOKEN_FILE=/home/u/token.txt python3 model.py"}),
+        ])
+        _, out = self.uruchom("--sesja", "s1", "--pliki", "model")
+        self.assertIn(kod.strip(), out)
+        _, os_czasu = self.uruchom("--sesja", "s1")
+        self.assertIn("MAX_TOKENS=100000000", os_czasu)
+        self.assertNotIn("Zamaskowano", os_czasu)
+
+    def test_sekrety_w_json_i_po_spacji(self):
+        self.zapisz_sesje("s1", [
+            narzedzie("t1", "mcp__serwis__login", {"user": "jan", "password": "tajnehaslo123"}),
+            narzedzie("t2", "Bash", {"command": "cli login --token abcdefghijkl123"}),
+            narzedzie("t3", "Skill", {"skill": "publikuj", "args": "--api-key zxcvbnmasdf987"}),
+        ])
+        _, out = self.uruchom("--sesja", "s1")
+        for sekret in ("tajnehaslo123", "abcdefghijkl123", "zxcvbnmasdf987"):
+            self.assertNotIn(sekret, out)
+        self.assertIn('"password": "[SEKRET]"', out)
+        self.assertIn("Zamaskowano 3 fragm.", out)  # każdy sekret liczony raz, mimo kilku przejść
+
+    def test_sekret_w_nazwie_ze_skladnikiem(self):
+        sciezka = Path(self.tmp.name) / "ustawienia.py"
+        sciezka.write_text('SECRET_KEY = "django-insecure-abc123xyz"\n', encoding="utf-8")
+        self.zapisz_sesje("s1", [narzedzie("t1", "Write", {"file_path": str(sciezka), "content": "x"})])
+        _, out = self.uruchom("--sesja", "s1", "--pliki", "ustawienia")
+        self.assertNotIn("django-insecure-abc123xyz", out)
+        self.assertIn('SECRET_KEY = "[SEKRET]"', out)
+
+    def test_multiedit_i_replace_all(self):
+        sciezka = str(Path(self.tmp.name) / "usuniety.py")
+        self.zapisz_sesje("s1", [
+            narzedzie("t1", "Write", {"file_path": sciezka, "content": "a = 1\na = 1\nb = 2\n"}),
+            narzedzie("t2", "MultiEdit", {"file_path": sciezka, "edits": [
+                {"old_string": "a = 1", "new_string": "a = 9", "replace_all": True},
+                {"old_string": "b = 2", "new_string": "b = 8"}]}),
+        ])
+        _, out = self.uruchom("--sesja", "s1", "--pliki", "usuniety")
+        self.assertIn("a = 9\na = 9\nb = 8", out)
+        self.assertIn("Edit: 2", out)
+        self.assertNotIn("UWAGA", out)
+
+    def test_plik_tylko_edytowany(self):
+        sciezka = str(Path(self.tmp.name) / "usuniety.py")
+        self.zapisz_sesje("s1", [narzedzie("t1", "Edit", {"file_path": sciezka, "old_string": "a", "new_string": "b"})])
+        _, lista = self.uruchom("--sesja", "s1", "--pliki")
+        self.assertIn("tylko Edit", lista)
+        self.assertIn("nie wszystkie Edit dało się odtworzyć", lista)
+        _, tresc = self.uruchom("--sesja", "s1", "--pliki", "usuniety")
+        self.assertIn("brak pełnej treści", tresc)
 
 
 if __name__ == "__main__":

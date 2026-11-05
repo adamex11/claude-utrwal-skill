@@ -84,6 +84,9 @@ def instaluj():
         shutil.rmtree(tymczasowy, ignore_errors=True)
     shutil.rmtree(stary, ignore_errors=True)
     print(f"{'Zaktualizowano' if aktualizacja else 'Zainstalowano'} skill w {docelowy}")
+    if stary.exists():
+        # Np. na Windows, gdy plik jest zablokowany. Zbędna kopia nie powinna zostawać w skills/.
+        print(f"UWAGA: nie udało się usunąć kopii poprzedniej wersji {stary}. Usuń ten katalog ręcznie.")
     print("Zrestartuj Claude Code (albo otwórz nową sesję), potem na koniec pracy wpisz: /utrwal-skill")
 
 

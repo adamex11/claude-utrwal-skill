@@ -120,7 +120,7 @@ Gdy umiejętność powstawała w kilku sesjach albo przed `/clear`:
 /utrwal-skill --sesja ID1 ID2
 ```
 
-Listę sesji projektu (id, data, rozmiar, tytuł) pokaże Claude na prośbę, albo sam uruchomisz:
+Listę sesji projektu (id, czas ostatniej zmiany pliku sesji, rozmiar, tytuł) pokaże Claude na prośbę, albo sam uruchomisz:
 
 ```bash
 python3 ~/.claude/skills/utrwal-skill/scripts/wyciagnij_rozmowe.py --lista
@@ -197,10 +197,10 @@ zamiast przerywać pracę. Przy odtwarzaniu plików pomija Edity, które skończ
 python3 -m unittest discover -s tests -v
 ```
 
-27 testów na sztucznych zapisach sesji (bez danych z prawdziwych rozmów): filtrowanie osi czasu,
+36 testów na sztucznych zapisach sesji (bez danych z prawdziwych rozmów): filtrowanie osi czasu,
 argumenty komend, raporty subagentów, uszkodzone linie i ucięte znaki, streszczenie po kompakcji,
-obcinanie, maskowanie sekretów, odzyskiwanie plików (także z nieudanymi Editami), lista sesji po
-przeniesieniu projektu i z polskimi znakami w ścieżce, instalator (bezpieczna aktualizacja, dowiązania,
+obcinanie, maskowanie sekretów (także bez cudzysłowu w Bash i w JSON, bez fałszywych trafień typu tokenizer), odzyskiwanie plików (MultiEdit, nieudane Edity, zmiany przez Bash), lista sesji (także długich) po
+przeniesieniu projektu i z polskimi znakami w ścieżce, instalator (bezpieczna aktualizacja z przywracaniem, dowiązania,
 przepisywanie ścieżek) i deinstalator.
 CI uruchamia je na Windows i macOS (Python 3.9 i 3.12) oraz na Linuksie (Python 3.12).
 

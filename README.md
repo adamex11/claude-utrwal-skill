@@ -190,7 +190,7 @@ python3 -m unittest discover -s tests -v
 
 18 testów na sztucznych zapisach sesji (bez danych z prawdziwych rozmów): filtrowanie osi czasu,
 obcinanie, odzyskiwanie plików, lista sesji po przeniesieniu projektu, instalator i deinstalator.
-CI uruchamia je na Windows, macOS i Linux (Python 3.9 i 3.12).
+CI uruchamia je na Windows i macOS (Python 3.9 i 3.12) oraz na Linuksie (Python 3.12).
 
 Sam skill był testowany subagentami bez kontekstu rozmowy na prawdziwych sesjach (zadanie jednorazowe,
 skill już istniejący, przypadek graniczny, pełna budowa). Wyniki i zmiany po testach:

@@ -13,6 +13,10 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
         python: ['3.9', '3.12']
+        exclude:
+          # Najnowszy runner Ubuntu nie ma już Pythona 3.9 (3.9 testujemy na macOS i Windows)
+          - os: ubuntu-latest
+            python: '3.9'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

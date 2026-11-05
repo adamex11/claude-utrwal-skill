@@ -125,3 +125,22 @@ Odrzucone: N6. Uwaga, że `ubuntu-latest` ma Pythona 3.9, jest nieaktualna: runn
 | W3 | Sekrety w kluczach JSON/dict (`{"password": "..."}`, wejścia narzędzi MCP) niemaskowane | opcjonalny cudzysłów wokół nazwy |
 
 Drobne: `split("\n")` zamiast `splitlines()` w `ostatni_tytul` (zgodnie z `rekordy()`), `--token wartość` po spacji maskowane w Bash i argumentach skilli (najpierw wzorce z rodzajem sekretu, już zamaskowane fragmenty nie są liczone drugi raz), `SKILL.md` "czas ostatniej zmiany", łagodniejszy komunikat o nieusuniętej kopii. D6 (ścieżka względna zamiast przepisywania `~/.claude/`) świadomie pominięte: zaszyta ścieżka jest pewniejsza niż poleganie na wstrzykniętej linii "Base directory". Zaakceptowane: fałszywe trafienie `token=...` w treści `git commit -m`. Razem 36 testów.
+
+## Czwarta recenzja (Sonnet + Fable z dyskusją, 7/10)
+
+Obaj recenzenci przetestowali skill end-to-end na sztucznych sesjach, sprawdzili strukturę prawdziwych transkryptów i skonfrontowali raporty.
+
+| # | Problem | Poprawka |
+|---|---|---|
+| 1 | Odpowiedzi na AskUserQuestion ginęły w ~85% (nowe brzmienie "Your questions have been answered") | odczyt z `toolUseResult.answers` (pytanie -> odpowiedź, notatki), fallback na trzy brzmienia tekstu |
+| 2 | Streszczenie po kompakcji ucinane do 1200 zn. (prawdziwe: 10-18 tys.) | osobny limit 30 000 zn. |
+| 3 | `--pliki .env` wypisywał sekrety bez cudzysłowu; brak wielu formatów | wzorce luźne w komendach, tekście i plikach konfiguracyjnych (w kodzie tylko ostrożne); JWT, klucze prywatne, URL z hasłem, `-u`, `mysql -p`, `X-API-Key`, `Basic`, Stripe, Google, npm, GitLab, HF; ostrzeżenie o heurystyce zawsze |
+| 4 | Wynik dużej sesji (do 450 KB) bez wskazówki czytania | `--tylko KATEGORIE`, zdanie w SKILL.md: powyżej ~80 KB zacznij od mapy (na prawdziwych sesjach 3-76 KB) |
+| 5 | Szablon ("pełna ścieżka") sprzeczny z listą kontrolną ("bez /Users/") | `${CLAUDE_SKILL_DIR}` (udokumentowane, podstawiane w treści i `allowed-tools`), `allowed-tools` dla skryptu; instalator przepisuje już tylko miejsca zapisu. D6 z pierwszej recenzji wdrożone w tej postaci |
+| 6 | Pułapka "pusta zmienna sesji w subagencie" nieprawdziwa (obaj sprawdzili: jest ustawiona) | `--sesja ${CLAUDE_SESSION_ID}`; realny przypadek: po `--resume` zmienna środowiskowa może wskazywać sesję startową |
+
+Drobne: zmiany w Editach (`stare -> nowe`), krótkie udane wyniki Basha (do 200 zn.), `[obraz]`, komendy `!` użytkownika, typ subagenta zamiast modelu, ścieżki względne do `cwd`, heredoc w `--pliki` (z ostrzeżeniem o zmiennych powłoki), limit treści w `--pliki`, `perl -pi` i `sort -o`, Edit z pustym `old_string`, rekord o nietypowym kształcie nie przerywa pracy, `--lista` z podkatalogu, nowe techniczne typy rekordów pomijane. SKILL.md: duplikaty z tabeli pułapek usunięte, rozdzielanie `--sesja` i podpowiedzi w `$ARGUMENTS`, test suchy na tańszym modelu. Lista kontrolna: stała projektu vs wartość przebiegu, "nie używaj, gdy", `disable-model-invocation` dla efektów ubocznych, `allowed-tools`, `python` na Windowsie, szerszy grep sekretów.
+
+Rozstrzygnięte spory: test suchy zostaje dla wszystkich skilli, ale na tańszym modelu (Sonnet chciał go pomijać dla małych); zamiast ogólnego budżetu znaków filtr `--tylko`; udane wyniki tylko do 200 zn. w całości (pierwsze 100 zn. każdego wyniku to według pomiaru głównie szum). Raporty subagentów zostają przy 1200 zn. i poza zalecaną mapą: przy 3000 zn. 128 raportów jednej sesji dawało 271 KB.
+
+Świadomie pominięte: BOM (0 wystąpień), test na żywo przez `claude -p`, foldery z hashem dla ścieżek > 200 zn. i `continued-in` (opisane w ograniczeniach), statystyka użycia skilli (nowa funkcja, do rozważenia). Razem 50 testów.

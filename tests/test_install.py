@@ -47,7 +47,9 @@ class Instalator(unittest.TestCase):
             tresc = plik.read_text(encoding="utf-8")
             self.assertNotIn("~/.claude/", tresc, plik)
         tresc = (self.cel / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn(f"{konfig}/skills/utrwal-skill/scripts/", tresc)
+        # Pliki skilla wskazuje ${CLAUDE_SKILL_DIR} (podstawia Claude Code), przepisywane są tylko miejsca zapisu
+        self.assertIn("${CLAUDE_SKILL_DIR}/scripts/wyciagnij_rozmowe.py", tresc)
+        self.assertNotIn(f"{konfig}/skills/utrwal-skill/", tresc)
         self.assertIn(f"{konfig}/CLAUDE.md", tresc)  # globalny CLAUDE.md
         self.assertIn(f"{konfig}/skills/<nazwa>/", tresc)  # miejsce zapisu skilli globalnych
 

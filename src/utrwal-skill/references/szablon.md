@@ -5,15 +5,17 @@ Wypełnij każdą sekcję. Sekcję bez treści usuń, nie zostawiaj pustej.
 ```markdown
 ---
 name: nazwa-skilla                  # = nazwa folderu; małe litery, cyfry, dywizy, bez polskich znaków
-description: Używaj, gdy ... (konkretne sytuacje i frazy użytkownika, np. "zrób X dla Y"). Tylko warunki użycia, bez streszczania kroków.
+description: Używaj, gdy ... (konkretne sytuacje i frazy użytkownika, np. "zrób X dla Y"). Nie używaj, gdy ... (sytuacje podobne, ale obsługiwane inaczej). Tylko warunki użycia, bez streszczania kroków.
 argument-hint: PARAMETR             # jeśli skill przyjmuje parametr
+disable-model-invocation: true      # jeśli skill ma efekty uboczne (wysyła, publikuje, usuwa) - tylko ręczne wywołanie
+allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/*)   # jeśli skill ma skrypty - bez pytań o uprawnienia
 ---
 
 # Tytuł (co powstaje)
 
 Parametr: **$ARGUMENTS**. Jeśli brak, zapytaj o niego i nic więcej nie rób.
 
-Skrypty: `<pełna ścieżka skilla>/scripts/`. Uruchamiaj przez interpreter, z pełną ścieżką w każdej komendzie: `python3 <pełna ścieżka skilla>/scripts/skrypt.py` (zmienne powłoki nie przetrwają między wywołaniami, więc nie definiuj skrótów w rodzaju `$S`).
+Skrypty: `${CLAUDE_SKILL_DIR}/scripts/`. Uruchamiaj przez interpreter, z pełną ścieżką w każdej komendzie: `python3 ${CLAUDE_SKILL_DIR}/scripts/skrypt.py` (na Windowsie `python`). Claude Code podstawia `${CLAUDE_SKILL_DIR}` przed pokazaniem skilla modelowi. Nie definiuj skrótów w rodzaju `$S`, bo zmienne powłoki nie przetrwają między wywołaniami.
 
 ## Zasady (obowiązują w każdym kroku)
 

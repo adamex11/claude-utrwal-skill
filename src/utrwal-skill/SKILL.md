@@ -3,15 +3,16 @@ name: utrwal-skill
 description: Zamienia umiejętność wypracowaną w tej rozmowie (albo we wskazanych sesjach) w nowy skill lub aktualizację istniejącego. Uruchamiaj ręcznie na koniec pracy.
 argument-hint: "[podpowiedź, np. notatka docx] [--sesja ID ...]"
 disable-model-invocation: true
+allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/wyciagnij_rozmowe.py *) Bash(python ${CLAUDE_SKILL_DIR}/scripts/wyciagnij_rozmowe.py *)
 ---
 
 # Utrwalenie umiejętności z rozmowy jako skill
 
-Podpowiedź użytkownika: **$ARGUMENTS** (może być pusta - wtedy sam wskaż najlepszego kandydata).
+Argumenty: **$ARGUMENTS**. Wyodrębnij z nich `--sesja ID ...` (przekażesz je skryptowi), a reszta to podpowiedź użytkownika. Gdy podpowiedzi brak, sam wskaż najlepszego kandydata.
 
 Cel: następnym razem to samo zadanie ma pójść szybciej, taniej i bez powtarzania błędów. Skill to **przepis, nie zapis rozmowy**: zostaje ostateczna działająca procedura, parametry zamiast konkretnych wartości, kod w skryptach i lekcje z błędów.
 
-Pliki skilla: skrypty w `~/.claude/skills/utrwal-skill/scripts/`, materiały w `~/.claude/skills/utrwal-skill/references/`. Zmienne powłoki nie przetrwają między wywołaniami, więc w każdej komendzie podawaj pełną ścieżkę. Komendy uruchamiaj z katalogu projektu.
+Pliki skilla: skrypty w `${CLAUDE_SKILL_DIR}/scripts/`, materiały w `${CLAUDE_SKILL_DIR}/references/`. Zmienne powłoki nie przetrwają między wywołaniami, więc w każdej komendzie podawaj pełną ścieżkę. Komendy uruchamiaj z katalogu projektu. Jeśli widzisz tu dosłownie `${CLAUDE_SKILL_DIR}` (starsza wersja Claude Code), użyj katalogu z linii "Base directory for this skill".
 
 Pliki robocze (oś czasu sesji) zapisuj w katalogu scratchpad z kontekstu systemowego, a gdy go nie ma, w katalogu tymczasowym systemu (`/tmp/` na macOS i Linuksie, `%TEMP%` na Windowsie). Na Windowsie uruchamiaj skrypty przez `python` zamiast `python3`.
 
@@ -30,18 +31,18 @@ Głównym źródłem jest rozmowa, którą masz w kontekście. Skrypt uruchom ty
 - użytkownik podał `--sesja`.
 
 ```bash
-python3 ~/.claude/skills/utrwal-skill/scripts/wyciagnij_rozmowe.py --lista     # sesje projektu: id, czas ostatniej zmiany, rozmiar, tytuł
-python3 ~/.claude/skills/utrwal-skill/scripts/wyciagnij_rozmowe.py --sesja ID [ID ...] --wyjscie <scratchpad>/os.md
+python3 ${CLAUDE_SKILL_DIR}/scripts/wyciagnij_rozmowe.py --lista     # sesje projektu: id, czas ostatniej zmiany, rozmiar, tytuł
+python3 ${CLAUDE_SKILL_DIR}/scripts/wyciagnij_rozmowe.py --sesja ID [ID ...] --wyjscie <scratchpad>/os.md
 ```
 
-Bez `--sesja` skrypt czyta bieżącą sesję (zmienna `CLAUDE_CODE_SESSION_ID`). Gdy użytkownik nie wie, które sesje wskazać, pokaż mu `--lista` i zapytaj.
+Bieżąca sesja to `--sesja ${CLAUDE_SESSION_ID}`. Gdy użytkownik nie wie, które sesje wskazać, pokaż mu `--lista` i zapytaj. `--lista` szuka też w katalogach nadrzędnych i w folderach projektu sprzed przeniesienia (te same 3 ostatnie człony ścieżki); gdy to nie wystarcza, podaj `--projekt <stara ścieżka>`.
 
-Wynik to **skrót**: wiadomości użytkownika do ok. 3000 znaków, pozostałe wpisy do 300, z pominięciem treści zapisywanych plików i udanych wyników narzędzi. Gdy skrócony fragment jest kluczowy (np. wymagania wklejone przez użytkownika albo końcowe podsumowanie asystenta), uruchom skrypt ponownie z `--max-znakow 2000` (podnosi limit dla wszystkich wpisów).
+Wynik to **skrót**: wiadomości i decyzje użytkownika (odpowiedzi na pytania) do ok. 3000 znaków, raporty subagentów do 1200, streszczenie po kompakcji w całości, pozostałe wpisy do 300 znaków, udane wyniki narzędzi tylko krótkie (do 200 znaków), bez treści zapisywanych plików. Skrypt wypisuje rozmiar wyniku. **Powyżej ok. 80 000 znaków nie czytaj całości:** najpierw uruchom go z `--tylko uzytkownik,decyzje,bledy,kompakcja` (mapa sesji; raporty subagentów osobno przez `--tylko raporty`), a szczegóły czytaj z pełnego wyniku fragmentami (`grep -n`, Read z `offset`/`limit`). Gdy skrócony fragment jest kluczowy, ponów z `--max-znakow 2000` (podnosi limit dla wszystkich wpisów, więc wynik rośnie).
 
-- **Kod z sesji:** `--sesja ID --pliki` pokazuje pliki zapisane w sesji (Write/Edit) i to, czy są jeszcze na dysku. `--sesja ID --pliki <fragment ścieżki>` wypisuje ich treść: z dysku, jeśli plik istnieje, albo odtworzoną z sesji z ostrzeżeniem, czego nie udało się odtworzyć (zmiany przez Bash). Pliki utworzone wyłącznie przez Bash (`cp`, heredoc) nie są na tej liście, więc szukaj ich w projekcie.
+- **Kod z sesji:** `--sesja ID --pliki` pokazuje pliki zapisane w sesji (Write/Edit) i to, czy są jeszcze na dysku. `--sesja ID --pliki <fragment ścieżki>` wypisuje ich treść: z dysku, jeśli plik istnieje, albo odtworzoną z sesji z ostrzeżeniem, czego nie udało się odtworzyć (zmiany przez Bash). Pliki tworzone heredociem (`cat > plik <<EOF`) też są na liście; pliki z `cp` i innych komend Bash nie, więc szukaj ich w projekcie.
 - **Scratchpad:** kod w `/private/tmp/...` albo `/tmp/...` jest tymczasowy i znika po restarcie komputera. Potrzebne fragmenty przenieś do `scripts/` nowego skilla, nie odwołuj się do nich.
 - **Subagenci:** w wyniku widać zlecenie (`- Agent: ...`) i raport końcowy (`<< RAPORT SUBAGENTA`), ale nie przebieg ich pracy (jest w osobnych plikach). Jeśli był kluczowy, zapisz to w propozycji jako ograniczenie.
-- **Sekrety:** fragmenty wyglądające na sekrety skrypt zamienia na `[SEKRET]` i podaje ich liczbę na końcu wyniku. Nie przenoś ich do skilla. W kodzie kopiowanym do `scripts/` zastąp `[SEKRET]` odczytem zmiennej środowiskowej (np. `os.environ["API_KEY"]`), nie usuwaj całej linii. Maskowane są też placeholdery w rodzaju `"YOUR_API_KEY_HERE"`.
+- **Sekrety:** fragmenty wyglądające na sekrety skrypt zamienia na `[SEKRET]` i podaje ich liczbę na końcu wyniku. Maskowanie jest heurystyczne (nie łapie np. sekretu wpisanego zwykłym tekstem), więc nie przenoś do skilla ani `[SEKRET]`, ani niczego, co wygląda na hasło, token lub klucz. W kodzie kopiowanym do `scripts/` zastąp `[SEKRET]` odczytem zmiennej środowiskowej (np. `os.environ["API_KEY"]`), nie usuwaj całej linii. Maskowane są też placeholdery w rodzaju `"YOUR_API_KEY_HERE"`.
 
 ## Krok 2. Analiza
 
@@ -101,14 +102,14 @@ Odrzucone jako jednorazowe: <...>
 
 ## Krok 4. Budowa
 
-1. Przeczytaj `~/.claude/skills/utrwal-skill/references/szablon.md` i według niego napisz SKILL.md (przy aktualizacji: dopisz tylko zaakceptowane zmiany, nie przepisuj całości).
+1. Przeczytaj `${CLAUDE_SKILL_DIR}/references/szablon.md` i według niego napisz SKILL.md (przy aktualizacji: dopisz tylko zaakceptowane zmiany, nie przepisuj całości).
 2. Skrypty: zaczynaj od kodu, który w rozmowie zadziałał. Zamień konkretne wartości na argumenty, ścieżki bezwzględne na względne, a zależności dopisz do `scripts/requirements.txt`. Każdy skrypt uruchom raz (`--help` albo przebieg na przykładzie z rozmowy). Jeśli pełne uruchomienie jest niemożliwe (brak sieci, brak zależności), zrób przynajmniej kontrolę składni (`python3 -m py_compile`, `node --check`) i wpisz to do podsumowania jako niesprawdzone.
 3. Zaakceptowane zmiany w CLAUDE.md wprowadź teraz.
 
 ## Krok 5. Weryfikacja
 
-1. Przejdź `~/.claude/skills/utrwal-skill/references/lista_kontrolna.md` punkt po punkcie i popraw braki.
-2. **Test suchy:** uruchom subagenta (narzędzie Agent) bez kontekstu rozmowy. Jako inne wejście wybierz, jeśli się da, prawdziwe pliki z projektu lub dysku (np. inną spółkę, inny dokument), żeby tester mógł sprawdzić dopasowanie do realnych danych. Treść zlecenia:
+1. Przejdź `${CLAUDE_SKILL_DIR}/references/lista_kontrolna.md` punkt po punkcie i popraw braki.
+2. **Test suchy:** uruchom subagenta (narzędzie Agent) bez kontekstu rozmowy, na tańszym modelu (np. `model: sonnet`), bo zadanie polega tylko na czytaniu. Jako inne wejście wybierz, jeśli się da, prawdziwe pliki z projektu lub dysku (np. inną spółkę, inny dokument), żeby tester mógł sprawdzić dopasowanie do realnych danych. Treść zlecenia:
    > Przeczytaj `<ścieżka>/SKILL.md` (i pliki, do których odsyła). Wyobraź sobie, że użytkownik wywołał go z wejściem `<INNE wejście niż w rozmowie>`. NIE uruchamiaj żadnych skryptów ani komend zmieniających pliki - możesz tylko czytać. Opisz krok po kroku, co byś zrobił, i wypisz: miejsca niejasne, brakujące informacje, wartości, które wyglądają na zaszyte z jednego przypadku, oraz kroki, których nie dałoby się wykonać.
 3. Popraw skill na podstawie raportu (jedna runda). Niejasności, których nie da się rozstrzygnąć bez użytkownika, przenieś do podsumowania.
 
@@ -127,8 +128,4 @@ Odrzucone jako jednorazowe: <...>
 | Skill działa tylko dla przykładu z rozmowy | zaszyte wartości (ticker, nazwa, data) | zamień na `$ARGUMENTS` i argumenty skryptów |
 | Model wykonuje sam opis zamiast skilla | `description` streszcza kroki | w opisie tylko warunki użycia |
 | Skrypty w projekcie i w skillu się rozjeżdżają | dwie kopie tego samego kodu | przenieś do jednego miejsca albo zapisz w pułapkach, że trzeba aktualizować razem |
-| Brakuje kroków z wcześniejszej pracy | umiejętność powstała w kilku sesjach albo przed `/clear` | `--lista`, potem `--sesja ID1 ID2` |
-| Skrypt nie znajduje sesji | zły id albo pusta `CLAUDE_CODE_SESSION_ID` (np. w subagencie) | podaj `--sesja` z `--lista` |
-| W skrócie brakuje treści wymagań | domyślne obcięcie wpisów | ponów z `--max-znakow 2000` albo czytaj pliki projektu |
-| `--lista` nie pokazuje starszych sesji | projekt przeniesiono, a stare sesje są pod starą ścieżką | skrypt dołącza foldery z tymi samymi 3 ostatnimi członami ścieżki; gdy to nie wystarcza, podaj `--projekt <stara ścieżka>` |
-| Kod z sesji był w scratchpadzie i go nie widać | skrót pomija treść plików, a scratchpad jest poza projektem | `--sesja ID --pliki`, a potem `--pliki <nazwa>` |
+| Skrypt czyta nie tę sesję | bez `--sesja` skrypt bierze `CLAUDE_CODE_SESSION_ID`, która po `--continue`/`--resume` może wskazywać sesję startową | zawsze podawaj `--sesja ${CLAUDE_SESSION_ID}` albo id z `--lista` |

@@ -46,7 +46,8 @@ def sprawdz():
 def przepisz_sciezki(katalog_skilla):
     """Przy niestandardowym katalogu konfiguracji zamienia każde ~/.claude/ w plikach .md skilla.
 
-    Dotyczy nie tylko ścieżek do skryptów, ale też miejsc zapisu (globalne skille, globalny CLAUDE.md).
+    Pliki samego skilla SKILL.md wskazuje przez ${CLAUDE_SKILL_DIR}, więc dotyczy to tylko miejsc zapisu
+    (globalne skille, globalny CLAUDE.md), dla których Claude Code nie ma zmiennej.
     """
     konfig = katalog_konfiguracji()
     if konfig == Path(DOMYSLNY_KATALOG).expanduser().resolve():

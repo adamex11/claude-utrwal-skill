@@ -60,8 +60,9 @@ python3 install.py
 ```
 
 Instalator kopiuje skill do `~/.claude/skills/utrwal-skill/` (albo do `$CLAUDE_CONFIG_DIR/skills/`,
-jeśli używasz niestandardowego katalogu konfiguracji; wtedy przepisuje wszystkie ścieżki `~/.claude/`
-w plikach skilla, także miejsca zapisu globalnych skilli i globalnego CLAUDE.md). Aktualizacja jest
+jeśli używasz niestandardowego katalogu konfiguracji; wtedy przepisuje ścieżki `~/.claude/` miejsc zapisu
+globalnych skilli i globalnego CLAUDE.md). Własne pliki skill wskazuje przez `${CLAUDE_SKILL_DIR}`, które
+podstawia Claude Code, a `allowed-tools` pozwala uruchamiać jego skrypt bez pytania o uprawnienia. Aktualizacja jest
 bezpieczna: nowa wersja powstaje obok i zastępuje starą dopiero po udanym kopiowaniu. Jeśli
 `~/.claude/skills/utrwal-skill` jest dowiązaniem (np. do klonu repozytorium), instalator go nie nadpisze.
 `python3 install.py --sprawdz` tylko sprawdza wymagania, niczego nie kopiuje.
@@ -149,8 +150,9 @@ python3 install.py --uninstall
 | Brak `/utrwal-skill` na liście poleceń | Zrestartuj Claude Code; sprawdź, czy istnieje `~/.claude/skills/utrwal-skill/SKILL.md`. |
 | "Nie znaleziono pliku sesji" | Zły id; weź właściwy z `--lista`. |
 | "Podaj --sesja ID" | Zmienna `CLAUDE_CODE_SESSION_ID` jest pusta (np. skrypt uruchomiony poza Claude Code); podaj `--sesja`. |
-| `--lista` nie pokazuje starszych sesji | Projekt był przenoszony; skrypt szuka po 3 ostatnich członach ścieżki, a gdy to nie wystarcza, podaj `--projekt <stara ścieżka>`. |
+| `--lista` nie pokazuje starszych sesji | Projekt był przenoszony; skrypt szuka po 3 ostatnich członach ścieżki i w katalogach nadrzędnych, a gdy to nie wystarcza, podaj `--projekt <stara ścieżka>`. |
 | W skrócie brakuje treści | Skrót obcina wpisy; Claude ponawia z `--max-znakow 2000`. |
+| Wynik jest bardzo duży | Długa sesja może dać kilkaset KB; Claude zaczyna od `--tylko uzytkownik,decyzje,bledy,kompakcja`. |
 
 ## Skrypt `wyciagnij_rozmowe.py`
 
@@ -159,24 +161,30 @@ python3 install.py --uninstall
 | (bez argumentów) | oś czasu bieżącej sesji |
 | `--sesja ID [ID ...]` | oś czasu wskazanych sesji |
 | `--lista [--projekt KATALOG]` | sesje projektu, także sprzed przeniesienia projektu |
-| `--pliki` | pliki zapisane w sesji (Write/Edit), czy są na dysku, czy zmieniano je przez Bash |
+| `--tylko KATEGORIE` | tylko wybrane wpisy: `uzytkownik,decyzje,bledy,raporty,kompakcja,asystent,narzedzia` |
+| `--pliki` | pliki zapisane w sesji (Write/Edit/heredoc), czy są na dysku, czy zmieniano je przez Bash |
 | `--pliki WZORZEC` | treść pasujących plików: z dysku, a gdy pliku już nie ma, odtworzona z sesji |
-| `--max-znakow N` | limit wpisu (domyślnie 300, wiadomości użytkownika 10x więcej) |
+| `--limit-pliku N` | obcięcie treści pliku w `--pliki` (domyślnie 200 000 znaków, 0 = bez limitu) |
+| `--max-znakow N` | limit wpisu (domyślnie 300; wiadomości i decyzje użytkownika 10x więcej, raporty 4x, streszczenie po kompakcji bez obcinania) |
 | `--wyjscie PLIK` | zapis do pliku |
 
-Oś czasu zostawia: Twoje wiadomości (z argumentami komend, np. `/raport ABC`) i odpowiedzi na pytania,
-skrócony tekst Claude, komendy, ścieżki zapisanych plików, błędy razem z komendą, która je wywołała,
-oraz zlecenia i raporty końcowe subagentów i wyniki zadań w tle. Pomija: myślenie modelu, treść
-zapisywanych plików, wstrzyknięte treści skilli i rekordy techniczne. Uszkodzone linie zapisu pomija,
-zamiast przerywać pracę. Przy odtwarzaniu plików pomija Edity, które skończyły się błędem.
+Oś czasu zostawia: Twoje wiadomości (z argumentami komend, np. `/raport ABC`, komendami `!` i znacznikiem
+`[obraz]`) i odpowiedzi na pytania, streszczenia po kompakcji, skrócony tekst Claude, komendy z krótkimi
+wynikami, zmiany w Editach (`stare -> nowe`), ścieżki zapisanych plików, błędy razem z komendą, która je
+wywołała, oraz zlecenia i raporty końcowe subagentów i wyniki zadań w tle. Pomija: myślenie modelu, treść
+zapisywanych plików, długie udane wyniki, wstrzyknięte treści skilli i rekordy techniczne. Uszkodzone linie
+i rekordy o nietypowym kształcie pomija, zamiast przerywać pracę. Przy odtwarzaniu plików pomija Edity,
+które skończyły się błędem.
 
 ## Prywatność
 
 - Skrypt działa **lokalnie** i tylko czyta pliki w `~/.claude/projects/`. Nic nie wysyła.
 - Oś czasu trafia do kontekstu Claude, tak samo jak treść zwykłej rozmowy. Fragmenty wyglądające na
-  sekrety (`Authorization: Bearer ...`, tokeny GitHub, klucze `sk-...`, klucze AWS i Slack, hasła
-  w cudzysłowie po `password=`/`token=`/`api_key=`) skrypt zamienia na `[SEKRET]` i podaje ich liczbę.
-  Maskowanie opiera się na wzorcach, więc nie złapie wszystkiego: przejrzyj propozycję przed akceptacją.
+  sekrety (nagłówki `Bearer`/`Basic`, tokeny GitHub, GitLab, Slack, npm, Hugging Face, klucze `sk-...`,
+  Stripe, AWS i Google, JWT, klucze prywatne, hasła w adresach `://user:haslo@`, `curl -u`, `mysql -p`,
+  wartości po `password`/`token`/`api_key`, w plikach konfiguracyjnych też bez cudzysłowu) skrypt zamienia
+  na `[SEKRET]` i podaje ich liczbę. Maskowanie opiera się na wzorcach, więc nie złapie wszystkiego (np.
+  sekretu wpisanego zwykłym tekstem): skrypt zawsze to przypomina, a Ty przejrzyj propozycję przed akceptacją.
 - Lista kontrolna nowego skilla ma osobną sekcję o sekretach (grep po typowych wzorcach, sekrety ze
   zmiennych środowiskowych, nic oznaczonego `[SEKRET]` w skillu).
 - Nowy skill zapisuje się dopiero po Twojej akceptacji. Gdy powstaje w repozytorium projektu, sprawdź
@@ -185,9 +193,10 @@ zamiast przerywać pracę. Przy odtwarzaniu plików pomija Edity, które skończ
 ## Ograniczenia
 
 - Przebieg pracy subagentów jest w osobnych plikach; skrót pokazuje ich zlecenie i raport końcowy.
-- Pliki tworzone wyłącznie przez Bash (`cp`, heredoc) nie trafiają do `--pliki`, a zmian zrobionych przez
-  Bash nie da się odtworzyć z zapisu sesji (dlatego plik z dysku ma pierwszeństwo).
-- Format zapisu sesji po kompakcji nie został zweryfikowany na prawdziwej sesji.
+- Pliki tworzone przez Bash inaczej niż heredociem (`cp`, skrypty) nie trafiają do `--pliki`, a zmian
+  zrobionych przez Bash nie da się odtworzyć z zapisu sesji (dlatego plik z dysku ma pierwszeństwo).
+- Foldery sesji projektów o ścieżce dłuższej niż 200 znaków (Claude Code skraca je i dodaje skrót) nie są
+  znajdowane przez `--lista`; podaj wtedy `--sesja ID`.
 - Skill nie działa automatycznie (świadomie: bez hooków, żeby nie tworzyć skilli z każdej rozmowy).
 - Ocena "skill / nic" to decyzja modelu; przypadki graniczne trafiają do Ciebie jako pytanie.
 
@@ -197,11 +206,12 @@ zamiast przerywać pracę. Przy odtwarzaniu plików pomija Edity, które skończ
 python3 -m unittest discover -s tests -v
 ```
 
-36 testów na sztucznych zapisach sesji (bez danych z prawdziwych rozmów): filtrowanie osi czasu,
-argumenty komend, raporty subagentów, uszkodzone linie i ucięte znaki, streszczenie po kompakcji,
-obcinanie, maskowanie sekretów (także bez cudzysłowu w Bash i w JSON, bez fałszywych trafień typu tokenizer), odzyskiwanie plików (MultiEdit, nieudane Edity, zmiany przez Bash), lista sesji (także długich) po
-przeniesieniu projektu i z polskimi znakami w ścieżce, instalator (bezpieczna aktualizacja z przywracaniem, dowiązania,
-przepisywanie ścieżek) i deinstalator.
+50 testów na sztucznych zapisach sesji (bez danych z prawdziwych rozmów): filtrowanie osi czasu i `--tylko`,
+argumenty komend, odpowiedzi na pytania (obecny format), raporty subagentów, długie streszczenie po
+kompakcji, uszkodzone linie i nietypowe rekordy, obcinanie, maskowanie sekretów (znane formaty, pliki `.env`,
+bez fałszywych trafień w kodzie), odzyskiwanie plików (MultiEdit, heredoc, nieudane i puste Edity, zmiany
+przez Bash), lista sesji (długich, z podkatalogu, po przeniesieniu projektu, z polskimi znakami),
+instalator (bezpieczna aktualizacja z przywracaniem, dowiązania, przepisywanie ścieżek) i deinstalator.
 CI uruchamia je na Windows i macOS (Python 3.9 i 3.12) oraz na Linuksie (Python 3.12).
 
 Sam skill był testowany subagentami bez kontekstu rozmowy na prawdziwych sesjach (zadanie jednorazowe,

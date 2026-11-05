@@ -5,11 +5,16 @@ Sprawdź każdy punkt. Gdy któryś nie jest spełniony, popraw skill przed test
 ## Nagłówek
 - [ ] `name` = nazwa folderu; tylko małe litery, cyfry, dywizy; bez polskich znaków.
 - [ ] `description` opisuje tylko, KIEDY użyć (sytuacje, frazy użytkownika), bez streszczenia kroków. Do ok. 500 znaków.
+- [ ] `description` mówi też, kiedy NIE używać, jeśli istnieje podobny skill albo podobna sytuacja; nie pokrywa się z opisem innego skilla.
 - [ ] `argument-hint`, jeśli skill przyjmuje parametr; w treści `$ARGUMENTS` i reakcja na jego brak.
+- [ ] `disable-model-invocation: true`, jeśli skill ma efekty uboczne (wysyłka, publikacja, usuwanie, płatności).
+- [ ] `allowed-tools` z `${CLAUDE_SKILL_DIR}`, jeśli skill uruchamia własne skrypty; bez szerokich uprawnień w rodzaju `Bash(*)`.
 
 ## Ogólność
-- [ ] Brak wartości z tej konkretnej rozmowy (ticker, nazwa klienta, data, liczba) poza oznaczonym przykładem.
-- [ ] Brak ścieżek bezwzględnych `/Users/...`; ścieżki względem projektu albo folderu skilla.
+- [ ] Brak wartości z tego konkretnego przebiegu (ticker, nazwa klienta, data, liczba) poza oznaczonym przykładem. Takie wartości są parametrami.
+- [ ] Stałe projektu (nazwa bazy, szablonu, kanału, identyfikator bazy w Notion) mogą zostać, jeśli skill jest projektowy: zebrane w jednym miejscu (sekcja w SKILL.md albo plik w `references/`) i opisane, czym są.
+- [ ] Brak ścieżek bezwzględnych `/Users/...`. Pliki skilla przez `${CLAUDE_SKILL_DIR}/...`, pliki projektu względem katalogu projektu albo przez `${CLAUDE_PROJECT_DIR}/...`.
+- [ ] Komendy `python3` mają uwagę, że na Windowsie to `python`.
 - [ ] Brak narracji ("w rozmowie zrobiliśmy"); tryb rozkazujący.
 
 ## Treść
@@ -22,9 +27,9 @@ Sprawdź każdy punkt. Gdy któryś nie jest spełniony, popraw skill przed test
 - [ ] SKILL.md ma mniej niż 500 linii; długie materiały są w `references/`.
 
 ## Sekrety
-- [ ] Żadnych tokenów, kluczy API, haseł ani nagłówków `Authorization: Bearer ...` w SKILL.md, `scripts/` i `references/`. Sprawdź grepem, np. `grep -rniE "bearer|api[_-]?key|token|secret|password|sk-|ghp_" <folder skilla>`, i przejrzyj każde trafienie.
+- [ ] Żadnych tokenów, kluczy API, haseł ani nagłówków `Authorization: Bearer ...` w SKILL.md, `scripts/` i `references/`. Sprawdź grepem, np. `grep -rniE "bearer|basic |api[_-]?key|token|secret|passw|sk-|sk_live|ghp_|glpat-|AIza|eyJ|PRIVATE KEY|://[^/ ]+:[^/ ]+@" <folder skilla>`, i przejrzyj każde trafienie.
 - [ ] Skrypty biorą sekrety ze zmiennych środowiskowych albo pliku spoza skilla (np. `.env` w `.gitignore`), a SKILL.md mówi, jak je ustawić.
-- [ ] Nie przenoś do skilla fragmentów, które `wyciagnij_rozmowe.py` oznaczył jako `[SEKRET]`.
+- [ ] Nie przenoś do skilla fragmentów, które `wyciagnij_rozmowe.py` oznaczył jako `[SEKRET]`, ani niczego, co wygląda na sekret, a nie zostało oznaczone (maskowanie jest heurystyczne).
 
 ## Skrypty
 - [ ] Każdy skrypt uruchomiony co najmniej raz po uogólnieniu (np. `--help` albo przebieg na przykładzie).

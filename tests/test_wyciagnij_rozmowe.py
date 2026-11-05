@@ -331,7 +331,8 @@ class Recenzja(Baza):
         self.assertIn(kod.strip(), out)
         _, os_czasu = self.uruchom("--sesja", "s1")
         self.assertIn("MAX_TOKENS=100000000", os_czasu)
-        self.assertNotIn("Zamaskowano", os_czasu)
+        self.assertIn("Zamaskowano 0 fragm.", os_czasu)
+        self.assertIn("heurystyczne", os_czasu)  # ostrzeżenie o niepełności także przy zerze
 
     def test_sekrety_w_json_i_po_spacji(self):
         self.zapisz_sesje("s1", [
@@ -364,16 +365,196 @@ class Recenzja(Baza):
         _, out = self.uruchom("--sesja", "s1", "--pliki", "usuniety")
         self.assertIn("a = 9\na = 9\nb = 8", out)
         self.assertIn("Edit: 2", out)
-        self.assertNotIn("UWAGA", out)
+        self.assertNotIn("[UWAGA:", out)
 
     def test_plik_tylko_edytowany(self):
         sciezka = str(Path(self.tmp.name) / "usuniety.py")
         self.zapisz_sesje("s1", [narzedzie("t1", "Edit", {"file_path": sciezka, "old_string": "a", "new_string": "b"})])
         _, lista = self.uruchom("--sesja", "s1", "--pliki")
-        self.assertIn("tylko Edit", lista)
-        self.assertIn("nie wszystkie Edit dało się odtworzyć", lista)
+        self.assertIn("tylko Edit, brak pełnej treści", lista)
+        self.assertNotIn("nie dały się nałożyć", lista)  # Edit nie zawiódł, tylko nie było bazy
         _, tresc = self.uruchom("--sesja", "s1", "--pliki", "usuniety")
         self.assertIn("brak pełnej treści", tresc)
+
+
+
+class TrzeciaRecenzja(Baza):
+    """Przypadki z recenzji Sonnet + Fable: decyzje, kompakcja, sekrety w plikach, --tylko, heredoc, odporność."""
+
+    def test_odpowiedz_askuserquestion_z_toolUseResult(self):
+        self.zapisz_sesje("s1", [
+            narzedzie("q1", "AskUserQuestion", {"questions": [{"question": "Stawka?", "header": "Stawka"}]}),
+            {"type": "user", "toolUseResult": {"questions": [], "answers": {"Stawka?": "180 EUR/h"},
+                                               "annotations": {"Stawka?": {"notes": "netto"}}},
+             "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "q1",
+                                                      "content": "Your questions have been answered: ..."}]}},
+        ])
+        _, out = self.uruchom("--sesja", "s1")
+        self.assertIn('>> ODPOWIEDŹ UŻYTKOWNIKA: "Stawka?" -> 180 EUR/h (notatka: netto)', out)
+        self.assertIn("- AskUserQuestion: Stawka?", out)
+
+    def test_odpowiedz_w_nowym_brzmieniu_bez_toolUseResult(self):
+        self.zapisz_sesje("s1", [
+            narzedzie("q1", "AskUserQuestion", {"questions": [{"question": "Format?"}]}),
+            wynik("q1", 'Your questions have been answered: "Format?"="docx"'),
+        ])
+        _, out = self.uruchom("--sesja", "s1")
+        self.assertIn('>> ODPOWIEDŹ UŻYTKOWNIKA: Your questions have been answered: "Format?"="docx"', out)
+
+    def test_dlugie_streszczenie_nie_jest_obcinane(self):
+        streszczenie = "Ustalenia: " + "kolejny szczegół ustaleń. " * 400 + "KONIEC_STRESZCZENIA"
+        self.zapisz_sesje("s1", [wpis_uzytkownika(streszczenie, isCompactSummary=True)])
+        _, out = self.uruchom("--sesja", "s1")
+        self.assertIn("KONIEC_STRESZCZENIA", out)
+
+    def test_sekrety_w_pliku_env_i_wynikach(self):
+        env = Path(self.tmp.name) / ".env"
+        env.write_text("NOTION_TOKEN=secret_abcdef1234567890\nDATABASE_URL=postgres://admin:Sup3rTajne@db:5432/x\n"
+                       "STRIPE_KEY=sk_live_abcdef1234567890\npassword: hunter22222\nDEBUG=true\n", encoding="utf-8")
+        self.zapisz_sesje("s1", [
+            narzedzie("t1", "Write", {"file_path": str(env), "content": "x"}),
+            narzedzie("t2", "Bash", {"command": "env | grep TOKEN"}),
+            wynik("t2", "env: NOTION_TOKEN=secret_abcdef1234567890", blad=True),
+        ])
+        _, pliki = self.uruchom("--sesja", "s1", "--pliki", ".env")
+        for sekret in ("secret_abcdef1234567890", "Sup3rTajne", "sk_live_abcdef1234567890", "hunter22222"):
+            self.assertNotIn(sekret, pliki)
+        self.assertIn("DEBUG=true", pliki)
+        self.assertIn("heurystyczne", pliki)
+        _, os_czasu = self.uruchom("--sesja", "s1")
+        self.assertNotIn("secret_abcdef1234567890", os_czasu)
+
+    def test_znane_formaty_sekretow(self):
+        jwt = "eyJhbGciOiJIUzI1NiJ9." + "eyJzdWIiOiIxMjM0NTY3ODkwIn0." + "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        komendy = [
+            f"curl -H 'Authorization: Bearer {jwt}' x", "curl -u admin:S3cretPass99 https://api.x",
+            "curl -H 'X-API-Key: abcd1234efgh5678' x", "curl -H 'Authorization: Basic dXNlcjpwYXNzd29yZA==' x",
+            "mysql -u root -pHaslo1234 baza", "export GOOGLE=AIza" + "SyA1234567890abcdefghijklmnopqrstu",
+            "npm config set //r/:_authToken npm_" + "a" * 36, "git clone https://oauth2:glpat-" + "b" * 20 + "@gitlab.com/x",
+        ]
+        klucz = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----"
+        sciezka = Path(self.tmp.name) / "klucz.txt"
+        sciezka.write_text(klucz, encoding="utf-8")
+        self.zapisz_sesje("s1", [narzedzie(f"t{i}", "Bash", {"command": k}) for i, k in enumerate(komendy)]
+                          + [narzedzie("w", "Write", {"file_path": str(sciezka), "content": "x"})])
+        _, out = self.uruchom("--sesja", "s1")
+        for sekret in (jwt, "S3cretPass99", "abcd1234efgh5678", "dXNlcjpwYXNzd29yZA", "Haslo1234",
+                       "SyA1234567890", "a" * 36, "b" * 20):
+            self.assertNotIn(sekret, out)
+        _, pliki = self.uruchom("--sesja", "s1", "--pliki", "klucz")
+        self.assertNotIn("MIIEowIBAAKCAQEA", pliki)
+        self.assertIn("[SEKRET:klucz-prywatny]", pliki)
+
+    def test_luzne_wzorce_nie_psuja_kodu(self):
+        sciezka = Path(self.tmp.name) / "klient.py"
+        kod = "token=get_token()\nAPI_TOKEN=os.environ['API_TOKEN']\ndef f(password: str): pass\n"
+        sciezka.write_text(kod, encoding="utf-8")
+        self.zapisz_sesje("s1", [narzedzie("t1", "Write", {"file_path": str(sciezka), "content": "x"})])
+        _, out = self.uruchom("--sesja", "s1", "--pliki", "klient")
+        self.assertIn(kod.strip(), out)
+
+    def test_filtr_tylko(self):
+        self.zapisz_sesje("s1", [
+            wpis_uzytkownika("Zrób raport"),
+            tekst_asystenta("Robię."),
+            narzedzie("t1", "Bash", {"command": "python3 r.py"}),
+            wynik("t1", "KeyError", blad=True),
+        ])
+        _, out = self.uruchom("--sesja", "s1", "--tylko", "uzytkownik,bledy")
+        self.assertIn(">> UŻYTKOWNIK: Zrób raport", out)
+        self.assertIn("!! BŁĄD", out)
+        self.assertNotIn("ASYSTENT", out)
+        self.assertNotIn("- Bash:", out)
+        kod, out = self.uruchom("--sesja", "s1", "--tylko", "nieznana")
+        self.assertNotEqual(kod, 0)
+        self.assertIn("nieznane kategorie", out)
+
+    def test_edit_krotki_wynik_obraz_i_komenda_uzytkownika(self):
+        self.zapisz_sesje("s1", [
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "text", "text": "To ten błąd"}, {"type": "image", "source": {}}]}},
+            wpis_uzytkownika("<bash-input>git status</bash-input>"),
+            wpis_uzytkownika("<bash-stdout>On branch main</bash-stdout><bash-stderr></bash-stderr>"),
+            {"type": "assistant", "cwd": str(self.projekt), "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "Edit", "input": {
+                    "file_path": str(self.projekt / "r.py"), "old_string": "enc='utf-8'", "new_string": "enc='cp1250'"}},
+                {"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "file dane.csv"}},
+                {"type": "tool_use", "id": "t3", "name": "Agent", "input": {
+                    "subagent_type": "Explore", "model": "haiku", "description": "Szukaj", "prompt": "x"}}]}},
+            wynik("t2", "dane.csv: CSV text, ISO-8859 text"),
+        ])
+        _, out = self.uruchom("--sesja", "s1")
+        self.assertIn(">> UŻYTKOWNIK: To ten błąd\n[obraz]", out)
+        self.assertIn(">> UŻYTKOWNIK: $ git status", out)
+        self.assertIn("= On branch main", out)
+        self.assertIn("- Edit: ./r.py: enc='utf-8' -> enc='cp1250'", out)
+        self.assertIn("= dane.csv: CSV text, ISO-8859 text", out)
+        self.assertIn("- Agent: [Explore] Szukaj", out)
+
+    def test_heredoc_w_pliki(self):
+        self.zapisz_sesje("s1", [
+            {"type": "assistant", "cwd": self.tmp.name, "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "Bash", "input": {
+                    "command": "mkdir -p d && cat > d/README.md <<'EOF'\n# Klient\nKroki onboardingu\nEOF"}},
+                {"type": "tool_use", "id": "t2", "name": "Bash", "input": {
+                    "command": "cat <<EOF > conf.txt\nuser=$USER\nEOF"}}]}},
+        ])
+        _, lista = self.uruchom("--sesja", "s1", "--pliki")
+        self.assertIn("README.md", lista)
+        self.assertIn("treść przybliżona", lista)  # conf.txt ma $USER bez cudzysłowu wokół EOF
+        self.assertNotIn("zmieniany też przez Bash", lista)
+        _, tresc = self.uruchom("--sesja", "s1", "--pliki", "README")
+        self.assertIn("# Klient\nKroki onboardingu", tresc)
+
+    def test_perl_pi_i_sort_o_zmieniaja_plik(self):
+        sciezka = str(Path(self.tmp.name) / "a.js")
+        for komenda in ("perl -pi -e 's/x/y/' a.js", "sort -o a.js a.js"):
+            self.zapisz_sesje("s1", [
+                narzedzie("t1", "Write", {"file_path": sciezka, "content": "x"}),
+                narzedzie("t2", "Bash", {"command": komenda}),
+            ])
+            _, lista = self.uruchom("--sesja", "s1", "--pliki")
+            self.assertIn("zmieniany też przez Bash", lista, komenda)
+
+    def test_limit_pliku(self):
+        sciezka = Path(self.tmp.name) / "duzy.json"
+        sciezka.write_text("x" * 300, encoding="utf-8")
+        self.zapisz_sesje("s1", [narzedzie("t1", "Write", {"file_path": str(sciezka), "content": "x"})])
+        _, out = self.uruchom("--sesja", "s1", "--pliki", "duzy", "--limit-pliku", "100")
+        self.assertIn("obcięto: plik ma 300 zn.", out)
+        self.assertNotIn("x" * 101, out)
+
+    def test_edit_z_pustym_old_string(self):
+        sciezka = str(Path(self.tmp.name) / "usuniety.py")
+        self.zapisz_sesje("s1", [
+            narzedzie("t1", "Edit", {"file_path": sciezka, "old_string": "", "new_string": "abc"}),
+            narzedzie("t2", "Edit", {"file_path": sciezka, "old_string": "", "new_string": "X", "replace_all": True}),
+        ])
+        _, out = self.uruchom("--sesja", "s1", "--pliki", "usuniety")
+        self.assertIn("abc", out)
+        self.assertNotIn("XaXbXcX", out)
+        self.assertIn("niektóre Edit nie dały się nałożyć", out)
+
+    def test_nietypowy_rekord_nie_przerywa(self):
+        self.zapisz_sesje("s1", [
+            {"type": "assistant", "message": {"content": ["sam tekst zamiast bloku"]}},
+            {"type": "user", "message": "tekst zamiast obiektu"},
+            narzedzie("t1", "Bash", ["lista", "zamiast", "obiektu"]),
+            wpis_uzytkownika("Prośba po dziwnych rekordach"),
+        ])
+        kod, out = self.uruchom("--sesja", "s1")
+        self.assertEqual(kod, 0, out)
+        self.assertIn("Prośba po dziwnych rekordach", out)
+        self.assertIn("Pominięto", out)
+
+    def test_lista_z_podkatalogu(self):
+        self.zapisz_sesje("s1", [wpis_uzytkownika("Prośba z katalogu projektu")])
+        podkatalog = self.projekt / "src" / "gleboko"
+        podkatalog.mkdir(parents=True)
+        kod, out = self.uruchom("--lista", "--projekt", str(podkatalog))
+        self.assertEqual(kod, 0, out)
+        self.assertIn("katalogu nadrzędnego", out)
+        self.assertIn("Prośba z katalogu projektu", out)
 
 
 if __name__ == "__main__":
